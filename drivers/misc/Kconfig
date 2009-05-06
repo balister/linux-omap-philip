@@ -237,6 +237,15 @@ config DELL_LAPTOP
 	This driver adds support for rfkill and backlight control to Dell
 	laptops.
 
+config SPISDR
+       tristate "SPI driver for SDR FPGA"
+       depends on SPI_MASTER
+       default n
+       help
+         Read/write streaming data via SPI to a FPGA. Also allow control
+          channels.
+
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 
