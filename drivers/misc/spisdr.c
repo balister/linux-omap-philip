@@ -55,8 +55,9 @@ spisdr_init(void)
 		return ret;
 	}
 
+	printk("spisdr major number : %d\n", MAJOR(spisdr_dev_number));
 	device_create(spisdr_class, NULL, MKDEV(MAJOR(spisdr_dev_number),0),
-		      "spisdr0", 0);
+		      NULL, "spisdr%d", 0);
 
 	printk("spisdr Driver Initialized.\n");
 
@@ -67,11 +68,24 @@ static void __exit
 spisdr_cleanup(void)
 {
 
+	unregister_chrdev_region(spisdr_dev_number, 1);
+
+	device_destroy(spisdr_class, MKDEV(MAJOR(spisdr_dev_number), 0));
+	cdev_del(&spisdr_devp->cdev);
+	kfree(spisdr_devp);
+
+	class_destroy(spisdr_class);
 }
+
 
 static int
 spisdr_open(struct inode *inode, struct file *file)
 {
+	struct spisdr_dev *spisdr_devp;
+
+	spisdr_devp = container_of(inode->i_cdev, struct spisdr_dev, cdev);
+
+	file->private_data = spisdr_devp;
 
 	return 0;
 }
@@ -79,11 +93,14 @@ spisdr_open(struct inode *inode, struct file *file)
 static int
 spisdr_release(struct inode *inode, struct file *file)
 {
+	struct spisdr_dev *spisdr_devp = file->private_data;
+
+	spisdr_devp = 0;
 
 	return 0;
 }
 
-static ssize_t
+ssize_t
 spisdr_read(struct file *file, char *buf, size_t count, loff_t **ppos)
 {
 
