@@ -12,11 +12,11 @@
 #include "linux/module.h"
 #include "linux/cdev.h"
 #include "linux/device.h"
+#include "linux/spi/spi.h"
 
 struct spisdr_dev {
 	struct cdev cdev;
 } *spisdr_devp;
-
 
 static dev_t spisdr_dev_number;
 static struct class *spisdr_class;
@@ -83,6 +83,8 @@ spisdr_open(struct inode *inode, struct file *file)
 {
 	struct spisdr_dev *spisdr_devp;
 
+	printk("spisdr open called\n");
+
 	spisdr_devp = container_of(inode->i_cdev, struct spisdr_dev, cdev);
 
 	file->private_data = spisdr_devp;
@@ -95,6 +97,8 @@ spisdr_release(struct inode *inode, struct file *file)
 {
 	struct spisdr_dev *spisdr_devp = file->private_data;
 
+	printk("spisdr release called\n");
+
 	spisdr_devp = 0;
 
 	return 0;
@@ -103,6 +107,7 @@ spisdr_release(struct inode *inode, struct file *file)
 ssize_t
 spisdr_read(struct file *file, char *buf, size_t count, loff_t **ppos)
 {
+	printk("spisdr read called\n");
 
 	return 0;
 }
@@ -110,6 +115,7 @@ spisdr_read(struct file *file, char *buf, size_t count, loff_t **ppos)
 static ssize_t
 spisdr_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
+	printk("spisdr write called\n");
 
 	return 0;
 }
@@ -117,6 +123,7 @@ spisdr_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 static loff_t
 spisdr_llseek(struct file *file, loff_t offest, int orig)
 {
+	printk("spisdr llseek called\n");
 
 	return 0;
 }
@@ -124,6 +131,7 @@ spisdr_llseek(struct file *file, loff_t offest, int orig)
 static int spisdr_ioctl(struct inode *inode, struct file *file,
                         unsigned int cmd, unsigned long arg)
 {
+	printk("spisdr ioctl called\n");
 
 	return 0;
 }
@@ -136,6 +144,26 @@ static struct file_operations spisdr_fops = {
 	.write		=	spisdr_write,
 	.llseek		=	spisdr_llseek,
 	.ioctl		=	spisdr_ioctl,
+};
+
+static int spisdr_probe(struct spi_device *spi)
+{
+
+}
+
+static spisdr_remove(struct spi_device *spi)
+{
+
+}
+
+
+static struct spi_driver spisdr_spi = {
+	.driver = {
+		.name =	"spisdr",
+		.owner = THIS_MODULE,
+	},
+	.probe = spisdr_probe,
+	.remove = __devexit_p(spisdr_remove),
 };
 
 MODULE_VERSION("0.1");
