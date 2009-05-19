@@ -24,6 +24,8 @@
 #include <linux/input.h>
 #include <linux/gpio_keys.h>
 
+#include <linux/spi/spi.h>
+
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/nand.h>
@@ -380,6 +382,32 @@ static struct platform_device *omap3_beagle_devices[] __initdata = {
 	&keys_gpio,
 };
 
+static struct spi_board_info beagle_mcspi_board_info[] = {
+	{
+		.modalias	= "spidev",
+		.max_speed_hz	= 48000000, //48 Mbps
+		.bus_num	= 3,
+		.chip_select	= 0,	
+		.mode = SPI_MODE_1,
+	},
+
+	{
+		.modalias	= "spidev",
+		.max_speed_hz	= 48000000, //48 Mbps
+		.bus_num	= 3,
+		.chip_select	= 1,	
+		.mode = SPI_MODE_1,
+	},
+
+	{
+		.modalias	= "spidev",
+		.max_speed_hz	= 48000000, //48 Mbps
+		.bus_num	= 4,
+		.chip_select	= 0,	
+		.mode = SPI_MODE_1,
+	},
+};
+
 static void __init omap3beagle_flash_init(void)
 {
 	u8 cs = 0;
@@ -426,6 +454,9 @@ static void __init omap3_beagle_init(void)
 	omap_board_config = omap3_beagle_config;
 	omap_board_config_size = ARRAY_SIZE(omap3_beagle_config);
 	omap_serial_init();
+
+	spi_register_board_info(beagle_mcspi_board_info,
+			ARRAY_SIZE(beagle_mcspi_board_info));
 
 	omap_cfg_reg(J25_34XX_GPIO170);
 	gpio_request(170, "DVI_nPD");
