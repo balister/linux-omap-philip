@@ -384,7 +384,7 @@ static struct platform_device *omap3_beagle_devices[] __initdata = {
 
 static struct spi_board_info beagle_mcspi_board_info[] = {
 	{
-		.modalias	= "spidev",
+		.modalias	= "spisdr",
 		.max_speed_hz	= 48000000, //48 Mbps
 		.bus_num	= 3,
 		.chip_select	= 0,	
@@ -392,7 +392,7 @@ static struct spi_board_info beagle_mcspi_board_info[] = {
 	},
 
 	{
-		.modalias	= "spidev",
+		.modalias	= "spisdr",
 		.max_speed_hz	= 48000000, //48 Mbps
 		.bus_num	= 3,
 		.chip_select	= 1,	
