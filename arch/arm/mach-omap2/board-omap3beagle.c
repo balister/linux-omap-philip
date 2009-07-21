@@ -474,6 +474,23 @@ static void __init omap3_beagle_map_io(void)
 	omap2_map_common_io();
 }
 
+static void __init omap3_beagle_config_mcspi3_mux(void)
+{
+	omap_cfg_reg(OMAP3_MCSPI3_CLK);
+	omap_cfg_reg(OMAP3_MCSPI3_SIMO);
+	omap_cfg_reg(OMAP3_MCSPI3_SOMI);
+	omap_cfg_reg(OMAP3_MCSPI3_CS0);
+	omap_cfg_reg(OMAP3_MCSPI3_CS1);
+}
+
+static void __init omap3_beagle_config_mcspi4_mux(void)
+{
+	omap_cfg_reg(OMAP3_MCSPI4_CLK);
+	omap_cfg_reg(OMAP3_MCSPI4_SIMO);
+	omap_cfg_reg(OMAP3_MCSPI4_SOMI);
+	omap_cfg_reg(OMAP3_MCSPI4_CS0);
+}
+
 MACHINE_START(OMAP3_BEAGLE, "OMAP3 Beagle Board")
 	/* Maintainer: Syed Mohammed Khasim - http://beagleboard.org */
 	.phys_io	= 0x48000000,
