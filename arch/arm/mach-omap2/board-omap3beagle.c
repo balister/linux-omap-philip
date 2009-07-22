@@ -446,6 +446,25 @@ static void __init omap3beagle_flash_init(void)
 	}
 }
 
+#ifdef CONFIG_SPI_OMAP24XX
+static void __init omap3_beagle_config_mcspi3_mux(void)
+{
+        omap_cfg_reg(OMAP3_MCSPI3_CLK);
+        omap_cfg_reg(OMAP3_MCSPI3_SIMO);
+        omap_cfg_reg(OMAP3_MCSPI3_SOMI);
+        omap_cfg_reg(OMAP3_MCSPI3_CS0);
+        omap_cfg_reg(OMAP3_MCSPI3_CS1);
+}
+
+static void __init omap3_beagle_config_mcspi4_mux(void)
+{
+        omap_cfg_reg(OMAP3_MCSPI4_CLK);
+        omap_cfg_reg(OMAP3_MCSPI4_SIMO);
+        omap_cfg_reg(OMAP3_MCSPI4_SOMI);
+        omap_cfg_reg(OMAP3_MCSPI4_CS0);
+}
+#endif
+
 static void __init omap3_beagle_init(void)
 {
 	omap3_beagle_i2c_init();
@@ -455,8 +474,13 @@ static void __init omap3_beagle_init(void)
 	omap_board_config_size = ARRAY_SIZE(omap3_beagle_config);
 	omap_serial_init();
 
+#ifdef CONFIG_SPI_OMAP24XX
+	omap3_beagle_config_mcspi3_mux();
+	omap3_beagle_config_mcspi4_mux();
+
 	spi_register_board_info(beagle_mcspi_board_info,
 			ARRAY_SIZE(beagle_mcspi_board_info));
+#endif
 
 	omap_cfg_reg(J25_34XX_GPIO170);
 	gpio_request(170, "DVI_nPD");
@@ -472,23 +496,6 @@ static void __init omap3_beagle_map_io(void)
 {
 	omap2_set_globals_343x();
 	omap2_map_common_io();
-}
-
-static void __init omap3_beagle_config_mcspi3_mux(void)
-{
-	omap_cfg_reg(OMAP3_MCSPI3_CLK);
-	omap_cfg_reg(OMAP3_MCSPI3_SIMO);
-	omap_cfg_reg(OMAP3_MCSPI3_SOMI);
-	omap_cfg_reg(OMAP3_MCSPI3_CS0);
-	omap_cfg_reg(OMAP3_MCSPI3_CS1);
-}
-
-static void __init omap3_beagle_config_mcspi4_mux(void)
-{
-	omap_cfg_reg(OMAP3_MCSPI4_CLK);
-	omap_cfg_reg(OMAP3_MCSPI4_SIMO);
-	omap_cfg_reg(OMAP3_MCSPI4_SOMI);
-	omap_cfg_reg(OMAP3_MCSPI4_CS0);
 }
 
 MACHINE_START(OMAP3_BEAGLE, "OMAP3 Beagle Board")
