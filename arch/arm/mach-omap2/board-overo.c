@@ -487,10 +487,15 @@ static struct twl4030_codec_data overo_codec_data = {
 	.audio = &overo_audio_data,
 };
 
+static struct twl4030_madc_platform_data overo_madc_data = {
+	.irq_line	= 1,
+};
+
 static struct twl4030_platform_data overo_twldata = {
 	.irq_base	= TWL4030_IRQ_BASE,
 	.irq_end	= TWL4030_IRQ_END,
 	.gpio		= &overo_gpio_data,
+	.madc		= &overo_madc_data,
 	.usb		= &overo_usb_data,
 	.codec		= &overo_codec_data,
 	.vmmc1		= &overo_vmmc1,
