@@ -37,7 +37,7 @@ install-all-dirs: $(installed-fw-dirs)
 	@true
 
 quiet_cmd_install = INSTALL $(subst $(srctree)/,,$@)
-      cmd_install = $(INSTALL) -m0644 $< $@
+      cmd_install = $(INSTALL) -m 0644 $< $@
 
 $(installed-fw-dirs):
 	$(call cmd,mkdir)
