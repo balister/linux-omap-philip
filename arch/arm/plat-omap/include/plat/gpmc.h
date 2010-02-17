@@ -56,6 +56,35 @@
 #define GPMC_CONFIG1_FCLK_DIV4          (GPMC_CONFIG1_FCLK_DIV(3))
 #define GPMC_CONFIG7_CSVALID		(1 << 6)
 
+#define GPMC_CONFIG2_CSWROFFTIME(val)	((val & 31) << 16)
+#define GPMC_CONFIG2_CSRDOFFTIME(val)	((val & 31) << 8)
+#define GPMC_CONFIG2_CSEXTRADELAY	(1 << 7)
+#define GPMC_CONFIG2_CSONTIME(val)	(val & 15)
+
+#define GPMC_CONFIG3_ADVWROFFTIME(val)	((val & 31) << 16)
+#define GPMC_CONFIG3_ADVRDOFFTIME(val)	((val & 31) << 8)
+#define GPMC_CONFIG3_ADVEXTRADELAY	(1 << 7)
+#define GPMC_CONFIG3_ADVONTIME(val)	(val & 15)
+
+#define GPMC_CONFIG4_WEOFFTIME(val)	((val & 31) << 24)
+#define GPMC_CONFIG4_WEEXTRADELAY	(1 << 23)
+#define GPMC_CONFIG4_WEONTIME(val)	((val & 15) << 16)
+#define GPMC_CONFIG4_OEOFFTIME(val)	((val & 31) << 8)
+#define GPMC_CONFIG4_OEEXTRADELAY	(1 << 7)
+#define GPMC_CONFIG4_OEONTIME(val)	(val & 15)
+
+#define GPMC_CONFIG5_PAGEBURSTACCESSTIME(val)	((val & 15) << 24)
+#define GPMC_CONFIG5_RDACCESSTIME(val)	((val & 31) << 16)
+#define GPMC_CONFIG5_WRCYCLETIME(val)	((val & 31) << 8)
+#define GPMC_CONFIG5_RDCYCLETIME(val)	(val & 31)
+
+#define GPMC_CONFIG6_WRACCESSTIME(val)	((val & 31) << 24)
+#define GPMC_CONFIG6_WRDATAONADMUXBUS(val)	((val & 15) << 16)
+#define GPMC_CONFIG6_CYCLE2CYCLEDELAY(val)	((val & 15) << 8)
+#define GPMC_CONFIG6_CYCLE2CYCLESAMECSEN	(1 << 7)
+#define GPMC_CONFIG6_CYCLE2CYCLEDIFFCSEN	(1 << 6)
+#define GPMC_CONFIG6_BUSTURNAROUND(val)	(val & 15)
+
 /*
  * Note that all values in this struct are in nanoseconds, while
  * the register values are in gpmc_fck cycles.
