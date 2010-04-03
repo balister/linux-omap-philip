@@ -354,6 +354,11 @@ static struct regulator_consumer_supply overo_vdda_dac_supply =
 static struct regulator_consumer_supply overo_vdds_dsi_supply =
 	REGULATOR_SUPPLY("vdds_dsi", "omapdss");
 
+struct flash_partitions {
+	struct mtd_partition *parts;
+	int nr_parts;
+};
+
 static struct mtd_partition overo_nand_partitions[] = {
 	{
 		.name           = "xloader",
@@ -383,33 +388,79 @@ static struct mtd_partition overo_nand_partitions[] = {
 	},
 };
 
-static struct omap_nand_platform_data overo_nand_data = {
-	.parts = overo_nand_partitions,
-	.nr_parts = ARRAY_SIZE(overo_nand_partitions),
-	.dma_channel = -1,	/* disable DMA in OMAP NAND driver */
-};
-
-static struct resource overo_nand_resource = {
-	.flags		= IORESOURCE_MEM,
-};
-
-static struct platform_device overo_nand_device = {
-	.name		= "omap2-nand",
-	.id		= -1,
-	.dev		= {
-		.platform_data	= &overo_nand_data,
+static struct flash_partitions overo_flash_partitions[] = {
+	{
+		/* NOR flash */
 	},
-	.num_resources	= 1,
-	.resource	= &overo_nand_resource,
+	{
+		/* OneNAND */
+	},
+	{
+		/* NAND */
+		.parts = overo_nand_partitions,
+		.nr_parts = ARRAY_SIZE(overo_nand_partitions),
+       },
 };
 
+#if defined(CONFIG_MTD_NAND_OMAP2) || \
+       defined(CONFIG_MTD_NAND_OMAP2_MODULE)
 
-static void __init overo_flash_init(void)
+/* Note that all values in this struct are in nanoseconds */
+static struct gpmc_timings nand_timings = {
+
+	.sync_clk	= 0,
+
+	.cs_on		= 0,
+	.cs_rd_off	= 36,
+	.cs_wr_off	= 36,
+
+	.adv_on		= 6,
+	.adv_rd_off	= 24,
+	.adv_wr_off	= 36,
+
+	.we_off		= 30,
+	.oe_off		= 48,
+
+	.access		= 54,
+	.rd_cycle	= 72,
+	.wr_cycle	= 72,
+
+	.wr_access	= 30,
+	.wr_data_mux_bus= 0,
+};
+
+static struct omap_nand_platform_data overo_nand_data = {
+       .nand_setup	= NULL,
+       .gpmc_t		= &nand_timings,
+       .dma_channel	= -1,	/* disable DMA in OMAP NAND driver */
+       .dev_ready	= NULL,
+       .devsize		= 1,	/* '0' for 8-bit, '1' for 16-bit device */
+};
+
+static void
+__init board_nand_init(struct flash_partitions overo_nand_parts, u8 cs)
 {
+	overo_nand_data.cs		= cs;
+	overo_nand_data.parts		= overo_nand_parts.parts;
+	overo_nand_data.nr_parts	= overo_nand_parts.nr_parts;
+	overo_nand_data.gpmc_baseaddr	= (void *) (OMAP34XX_GPMC_VIRT);
+
+	overo_nand_data.gpmc_cs_baseaddr = (void *)(OMAP34XX_GPMC_VIRT +
+				GPMC_CS0_BASE + cs * GPMC_CS_SIZE);
+
+	gpmc_nand_init(&overo_nand_data);
+}
+#else
+static void
+__init board_nand_init(struct flash_partitions overo_nand_parts, u8 cs)
+{
+}
+#endif /* CONFIG_MTD_NAND_OMAP2 || CONFIG_MTD_NAND_OMAP2_MODULE */
+
+static void
+__init overo_flash_init(struct flash_partitions partition_info[]){
 	u8 cs = 0;
 	u8 nandcs = GPMC_CS_NUM + 1;
-
-	u32 gpmc_base_add = OMAP34XX_GPMC_VIRT;
 
 	/* find out the chip-select on which NAND exists */
 	while (cs < GPMC_CS_NUM) {
@@ -430,16 +481,8 @@ static void __init overo_flash_init(void)
 		return;
 	}
 
-	if (nandcs < GPMC_CS_NUM) {
-		overo_nand_data.cs = nandcs;
-		overo_nand_data.gpmc_cs_baseaddr = (void *)
-			(gpmc_base_add + GPMC_CS0_BASE + nandcs * GPMC_CS_SIZE);
-		overo_nand_data.gpmc_baseaddr = (void *) (gpmc_base_add);
-
-		printk(KERN_INFO "Registering NAND on CS%d\n", nandcs);
-		if (platform_device_register(&overo_nand_device) < 0)
-			printk(KERN_ERR "Unable to register NAND device\n");
-	}
+	if (nandcs < GPMC_CS_NUM)
+		board_nand_init(partition_info[2], nandcs);
 }
 
 static struct omap2_hsmmc_info mmc[] = {
@@ -655,7 +698,7 @@ static void __init overo_init(void)
 	overo_i2c_init();
 	platform_add_devices(overo_devices, ARRAY_SIZE(overo_devices));
 	omap_serial_init();
-	overo_flash_init();
+	overo_flash_init(overo_flash_partitions);
 	usb_musb_init(&musb_board_data);
 	usb_ehci_init(&ehci_pdata);
 	overo_spi_init();
