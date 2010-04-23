@@ -471,6 +471,14 @@ void omap_set_dma_src_burst_mode(int lch, enum omap_dma_burst_mode burst_mode)
 }
 EXPORT_SYMBOL(omap_set_dma_src_burst_mode);
 
+void omap_set_dma_src_addr_size(int lch, unsigned int addr, int elem_count)
+{
+
+	p->dma_write(addr, CSSA, lch);
+	p->dma_write(elem_count, CEN, lch);
+}
+EXPORT_SYMBOL(omap_set_dma_src_addr_size);
+
 /* Note that dest_port is only for OMAP1 */
 void omap_set_dma_dest_params(int lch, int dest_port, int dest_amode,
 			      unsigned long dest_start,
@@ -560,6 +568,14 @@ void omap_set_dma_dest_burst_mode(int lch, enum omap_dma_burst_mode burst_mode)
 	p->dma_write(l, CSDP, lch);
 }
 EXPORT_SYMBOL(omap_set_dma_dest_burst_mode);
+
+void omap_set_dma_dest_addr_size(int lch, unsigned int addr, int elem_count)
+{
+
+	p->dma_write(addr, CDSA, lch);
+	p->dma_write(elem_count, CEN, lch);
+}
+EXPORT_SYMBOL(omap_set_dma_dest_addr_size);
 
 static inline void omap_enable_channel_irq(int lch)
 {
