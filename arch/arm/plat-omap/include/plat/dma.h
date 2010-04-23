@@ -462,6 +462,8 @@ extern void omap_set_dma_src_index(int lch, int eidx, int fidx);
 extern void omap_set_dma_src_data_pack(int lch, int enable);
 extern void omap_set_dma_src_burst_mode(int lch,
 					enum omap_dma_burst_mode burst_mode);
+extern void omap_set_dma_src_addr_size(int lch, unsigned int addr,
+				int elem_count);
 
 extern void omap_set_dma_dest_params(int lch, int dest_port, int dest_amode,
 				     unsigned long dest_start,
@@ -470,6 +472,8 @@ extern void omap_set_dma_dest_index(int lch, int eidx, int fidx);
 extern void omap_set_dma_dest_data_pack(int lch, int enable);
 extern void omap_set_dma_dest_burst_mode(int lch,
 					 enum omap_dma_burst_mode burst_mode);
+extern void omap_set_dma_dest_addr_size(int lch, unsigned int addr,
+					int elem_count);
 
 extern void omap_set_dma_params(int lch,
 				struct omap_dma_channel_params *params);
