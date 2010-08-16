@@ -544,16 +544,50 @@ static int micpath_event(struct snd_soc_dapm_widget *w,
 	 * shift_l == 2: TX2 microphone path */
 	if (e->shift_l) {
 		/* TX2 microphone path */
-		if (adcmicsel & TWL4030_TX2IN_SEL)
+		if (adcmicsel & TWL4030_TX2IN_SEL) {
 			micbias_ctl |= TWL4030_MICBIAS2_CTL; /* digimic */
-		else
+			/*disable bias*/
+			micbias_ctl &= ~(TWL4030_MICBIAS2_EN);
+        	} else {
 			micbias_ctl &= ~TWL4030_MICBIAS2_CTL;
+			/*
+			Analog microhpone selection, enable microphone bias
+			Not sure which event is actually fired, so both pre and post
+			are handled
+			*/
+			switch(event) {
+			case SND_SOC_DAPM_PRE_PMU: /* before widget power up */
+			case SND_SOC_DAPM_POST_PMU: /* after widget power up */
+				micbias_ctl |= TWL4030_MICBIAS2_EN;
+				break;
+			case SND_SOC_DAPM_PRE_PMD: /* before widget power down */
+			case SND_SOC_DAPM_POST_PMD: /* after widget power down*/
+				micbias_ctl &= ~(TWL4030_MICBIAS2_EN);
+				break;
+			default:
+				break;
+			}
+		}
 	} else {
 		/* TX1 microphone path */
-		if (adcmicsel & TWL4030_TX1IN_SEL)
+		if (adcmicsel & TWL4030_TX1IN_SEL) {
 			micbias_ctl |= TWL4030_MICBIAS1_CTL; /* digimic */
-		else
+			micbias_ctl &= ~(TWL4030_MICBIAS1_EN);
+		} else {
 			micbias_ctl &= ~TWL4030_MICBIAS1_CTL;
+			switch(event) {
+			case SND_SOC_DAPM_PRE_PMU: /* before widget power up */
+			case SND_SOC_DAPM_POST_PMU: /* after widget power up */
+				micbias_ctl |= TWL4030_MICBIAS1_EN;
+				break;
+			case SND_SOC_DAPM_PRE_PMD: /* before widget power down */
+			case SND_SOC_DAPM_POST_PMD: /* after widget power down*/
+				micbias_ctl &= ~(TWL4030_MICBIAS1_EN);
+				break;
+			default:
+				break;
+			}
+		}
 	}
 
 	twl4030_write(w->codec, TWL4030_REG_MICBIAS_CTL, micbias_ctl);
