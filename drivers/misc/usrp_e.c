@@ -904,6 +904,9 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 	// Make sure write is active before sleeping
 	send_frame_to_fpga_start();
 
+	/* Make sure to read in case the rx ring buffer is full */
+	get_frame_from_fpga_start();
+
 	// This likely needs some locking. The pointer is incremented
 	// before the flag state is updated.
 
