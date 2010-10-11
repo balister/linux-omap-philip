@@ -403,6 +403,11 @@ usrp_e_cleanup(void)
 	release_mem_region(p->mem_base, SZ_2K);
 	release_mem_region(p->control_mem_base, SZ_2K);
 
+	device_destroy(usrp_e_class, MKDEV(MAJOR(usrp_e_dev_number), 0));
+	cdev_del(&p->cdev);
+
+	class_destroy(usrp_e_class);
+
 	iounmap(p->ioaddr);
 	iounmap(p->ctl_addr);
 
@@ -423,13 +428,8 @@ usrp_e_cleanup(void)
 	delete_ring_buffer(&tx_rb, rb_size.num_tx_frames, DMA_TO_DEVICE);
 	delete_ring_buffer(&rx_rb, rb_size.num_rx_frames, DMA_FROM_DEVICE);
 
-	printk(KERN_DEBUG "Destrying some stuff\n");
-
-	device_destroy(usrp_e_class, MKDEV(MAJOR(usrp_e_dev_number), 0));
-	cdev_del(&p->cdev);
 	kfree(p);
 
-	class_destroy(usrp_e_class);
 	printk(KERN_DEBUG "Leaving cleanup\n");
 }
 
