@@ -887,6 +887,9 @@ static int usrp_e_ioctl(struct inode *inode, struct file *file,
 	case USRP_E_GET_RB_INFO:
 		return usrp_e_get_rb_info(arg);
 
+	case USRP_E_GET_COMPAT_NUMBER:
+		return USRP_E_COMPAT_NUMBER;
+
 	default:
 		return -ENOTTY;
 	}
