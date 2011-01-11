@@ -307,6 +307,12 @@ config MACH_TI8168EVM
 	depends on SOC_OMAPTI816X
 	default y
 
+config MACH_ROCKHOPPER
+	bool "Rockhopper board"
+	depends on ARCH_OMAP3
+	default y
+	select OMAP_PACKAGE_CBB
+
 config MACH_OMAP_4430SDP
 	bool "OMAP 4430 SDP board"
 	default y

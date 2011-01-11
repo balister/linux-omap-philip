@@ -111,9 +111,10 @@ static int __init omap3beagle_soc_init(void)
 {
 	int ret;
 
-	if (!(machine_is_omap3_beagle() || machine_is_devkit8000()))
+	if (!(machine_is_omap3_beagle() || machine_is_devkit8000() ||
+	      machine_is_rockhopper()))
 		return -ENODEV;
-	pr_info("OMAP3 Beagle/Devkit8000 SoC init\n");
+	pr_info("OMAP3 Beagle/Devkit8000/Rockhopper SoC init\n");
 
 	omap3beagle_snd_device = platform_device_alloc("soc-audio", -1);
 	if (!omap3beagle_snd_device) {
