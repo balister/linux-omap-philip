@@ -84,8 +84,7 @@ struct dma_data {
 #define UE_REG_SLAVE(n) ((n)<<7)
 #define UE_REG_SR_ADDR(n) ((UE_REG_SLAVE(5)) + (4*(n)))
 
-#define UE_REG_CTRL_TX_CLEAR_UNDERRUN UE_REG_SR_ADDR(25)
-#define UE_SR_CLEAR_FIFO UE_REG_SR_ADDR(6)
+#define UE_SR_CLEAR_FIFO UE_REG_SR_ADDR(48)
 
 #define CTL_SPI_BASE 0x100
 
