@@ -797,8 +797,8 @@ static void __init usrp1_e_init(void)
 	// CS signal timing parameter configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG2_CSONTIME(1);
-	tmp |= GPMC_CONFIG2_CSWROFFTIME(17);
-	tmp |= GPMC_CONFIG2_CSRDOFFTIME(17);
+	tmp |= GPMC_CONFIG2_CSWROFFTIME(20);
+	tmp |= GPMC_CONFIG2_CSRDOFFTIME(20);
 	printk("GPMC_CONFIG2 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG2, tmp);
 #endif 
@@ -813,24 +813,24 @@ static void __init usrp1_e_init(void)
         gpmc_cs_write_reg(6, GPMC_CS_CONFIG3, tmp);
 #endif
 
-#if 0
+#if 1
 	// nWE and nOE signals timing parameter configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG4_WEONTIME(3);
-	tmp |= GPMC_CONFIG4_WEOFFTIME(4);
+	tmp |= GPMC_CONFIG4_WEOFFTIME(18);
 	tmp |= GPMC_CONFIG4_OEONTIME(3);
-	tmp |= GPMC_CONFIG4_OEOFFTIME(4);
+	tmp |= GPMC_CONFIG4_OEOFFTIME(18);
 	printk("GPMC_CONFIG4 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG4, tmp);
 #endif
 
-#if 0
+#if 1
 	// RdAccess time and Cycle time timing paraters configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG5_PAGEBURSTACCESSTIME(1);
-	tmp |= GPMC_CONFIG5_RDACCESSTIME(4);
-	tmp |= GPMC_CONFIG5_WRCYCLETIME(5);
-	tmp |= GPMC_CONFIG5_RDCYCLETIME(5);
+	tmp |= GPMC_CONFIG5_RDACCESSTIME(18);
+	tmp |= GPMC_CONFIG5_WRCYCLETIME(21);
+	tmp |= GPMC_CONFIG5_RDCYCLETIME(21);
 	printk("GPMC_CONFIG5 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG5, tmp);
 #endif
