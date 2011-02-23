@@ -74,6 +74,11 @@ struct dma_data {
 	unsigned long phys_to;
 };
 
+#define UE_REG_MISC_RX_LEN (10)
+#define UE_REG_MISC_TX_LEN (12)
+#define UE_SR_CLEAR_GLOBAL ((8 << 7) + 4*48 + 4*2)
+
+#if 0 // Clean out this code
 #define MISC_REGS_BASE 0x0
 
 #define UE_REG_MISC_LED (MISC_REGS_BASE + 0)
@@ -85,6 +90,7 @@ struct dma_data {
 #define UE_REG_SR_ADDR(n) ((UE_REG_SLAVE(5)) + (4*(n)))
 
 #define UE_SR_CLEAR_FIFO UE_REG_SR_ADDR(48)
+#endif
 
 #define CTL_SPI_BASE 0x100
 
@@ -446,9 +452,8 @@ usrp_e_open(struct inode *inode, struct file *file)
 		return -EBUSY;
 	}
 
-	/* Clear rx and tx fifos in the fpga */
-	writel(1, p->ctl_addr + UE_SR_CLEAR_FIFO);
-	writel(2, p->ctl_addr + UE_SR_CLEAR_FIFO);
+	/* reset the FPGA */
+//	writel(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
 
 #if 0
 	usrp_e_devp = container_of(inode->i_cdev, struct usrp_e_dev, cdev);
@@ -1152,8 +1157,10 @@ static int init_dma_controller()
 	omap_set_dma_params(rx_dma->ch, &rx_dma->params);
 
 // Play with these with a real application
-//G	omap_set_dma_src_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
-//	omap_set_dma_dest_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(rx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(rx_dma->ch, 1);
 
 #if 0 // Need to find implentations of the endian calls
 	omap_set_dma_src_endian_type(rx_dma->ch, OMAP_DMA_BIG_ENDIAN);
@@ -1199,8 +1206,10 @@ static int init_dma_controller()
 	omap_set_dma_params(tx_dma->ch, &tx_dma->params);
 
 // Play with these with a real application
-//G	omap_set_dma_src_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
-//	omap_set_dma_dest_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(tx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(tx_dma->ch, 1);
 
 	return 0;
 }
@@ -1235,13 +1244,17 @@ static int get_frame_from_fpga_start()
 		
 		rbi->flags = RB_DMA_ACTIVE;
 		
+writew(1, p->ctl_addr + 54);
 		rbi->len = elements_to_read << 1;
 		
+writew(2, p->ctl_addr + 54);
 		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
 					elements_to_read);
 		
+writew(3, p->ctl_addr + 54);
 		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
-		
+
+writew(4, p->ctl_addr + 54);
 		omap_start_dma(rx_dma->ch);
 	}
 
@@ -1295,11 +1308,14 @@ static int send_frame_to_fpga_start()
 		
 		rbi->flags = RB_DMA_ACTIVE;
 		
+writew(1, p->ctl_addr + 54);
 		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
 					elements_to_write);
 		
+writew(2, p->ctl_addr + 54);
 		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
 		
+writew(3, p->ctl_addr + 54);
 		omap_start_dma(tx_dma->ch);
 	}
 
