@@ -213,6 +213,8 @@ static int tx_rb_read;
 static int rx_rb_write;
 static int rx_rb_read;
 
+static DEFINE_SPINLOCK(tx_rb_read_lock);
+
 static int alloc_ring_buffer(struct ring_buffer *rb,
 			unsigned int num_bufs, enum dma_data_direction direction);
 static void delete_ring_buffer(struct ring_buffer *rb,
@@ -904,6 +906,7 @@ static int usrp_e_ioctl(struct inode *inode, struct file *file,
 static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 {
 	unsigned int mask = 0;
+	unsigned long flags;
 
 	poll_wait(filp, &data_received_queue, wait);
 	poll_wait(filp, &tx_rb_space_available, wait);
@@ -925,6 +928,7 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 			mask |= POLLIN | POLLRDNORM;
 	}
 
+	spin_lock_irqsave(&tx_rb_read_lock, flags);
 	if (tx_rb_read == 0) {
 		if ((*tx_rb.rbi)[rb_size.num_tx_frames - 1].flags & RB_KERNEL)
 			mask |= POLLOUT | POLLWRNORM;
@@ -932,6 +936,7 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 		if ((*tx_rb.rbi)[tx_rb_read - 1].flags & RB_KERNEL)
 			mask |= POLLOUT | POLLWRNORM;
 	}
+	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 
 	return mask;
 
@@ -1013,6 +1018,9 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 
 		start += PAGE_SIZE;
 	}
+
+//	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
+	vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
 	vma->vm_ops = &usrp_e_mmap_ops;
 
@@ -1287,15 +1295,19 @@ static int get_frame_from_fpga_finish()
 static int send_frame_to_fpga_start()
 {
 	struct usrp_e_dev *p = usrp_e_devp;
-	struct ring_buffer_info *rbi = &(*tx_rb.rbi)[tx_rb_read];
-	struct ring_buffer_entry *rbe = &(*tx_rb.rbe)[tx_rb_read];
 	u16 elements_to_write;
+	unsigned long flags;
 
 //	printk("In send_frame_to_fpga_start.\n");
 
 	/* Check if there is data to write to the FPGA, if so send it */
 	/* Otherwise, do nothing. Process is restarted by calls to write */
-	if (((*tx_rb.rbi)[tx_rb_read].flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
+
+	spin_lock_irqsave(&tx_rb_read_lock, flags);
+	struct ring_buffer_info *rbi = &(*tx_rb.rbi)[tx_rb_read];
+	struct ring_buffer_entry *rbe = &(*tx_rb.rbe)[tx_rb_read];
+
+	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
 		tx_dma_active = 1;
 #ifdef DEBUG_TX
@@ -1312,26 +1324,32 @@ writew(1, p->ctl_addr + 54);
 		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
 					elements_to_write);
 		
+		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 writew(2, p->ctl_addr + 54);
-		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
+//		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
+		dsb();
 		
 writew(3, p->ctl_addr + 54);
 		omap_start_dma(tx_dma->ch);
+	} else {
+		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 	}
-
 	return 0;
 }
 
 static int send_frame_to_fpga_finish()
 {
+	unsigned long flags;
 
-	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
+//	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
 	
+	spin_lock_irqsave(&tx_rb_read_lock, flags);
 	(*tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
 	
 	tx_rb_read++;
 	if (tx_rb_read == rb_size.num_tx_frames)
 		tx_rb_read = 0;
+	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 	
 	wake_up_interruptible(&tx_rb_space_available);
 
