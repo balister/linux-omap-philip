@@ -907,7 +907,7 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 		+ (rb_size.num_pages_rx_flags + rb_size.num_pages_tx_flags) * PAGE_SIZE;
 
 	size = vma->vm_end - vma->vm_start;
-	printk(KERN_DEBUG "Size = %d, expected sixe = %d\n", size, expected_size);
+	printk(KERN_DEBUG "Size = %ld, expected sixe = %ld\n", size, expected_size);
 
 	if (size != expected_size)
 		return -EINVAL;
@@ -1181,6 +1181,8 @@ static int get_frame_from_fpga_finish()
 static int send_frame_to_fpga_start()
 {
 	struct usrp_e_dev *p = usrp_e_devp;
+	struct ring_buffer_info *rbi;
+	struct ring_buffer_entry *rbe;
 	u16 elements_to_write;
 	unsigned long flags;
 
@@ -1190,8 +1192,8 @@ static int send_frame_to_fpga_start()
 	/* Otherwise, do nothing. Process is restarted by calls to write */
 
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
-	struct ring_buffer_info *rbi = &(*tx_rb.rbi)[tx_rb_read];
-	struct ring_buffer_entry *rbe = &(*tx_rb.rbe)[tx_rb_read];
+	rbi = &(*tx_rb.rbi)[tx_rb_read];
+	rbe = &(*tx_rb.rbe)[tx_rb_read];
 
 	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
@@ -1248,7 +1250,7 @@ static int alloc_ring_buffer(struct ring_buffer *rb,
 {
 	int i;
 
-	rb->rbi = __get_free_page(GFP_KERNEL | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
+	rb->rbi = (void *) __get_free_page(GFP_KERNEL | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
 
 	rb->rbe = kzalloc(sizeof(struct ring_buffer_entry) * num_bufs, GFP_KERNEL);
 	if (!rb) {
@@ -1265,12 +1267,12 @@ static int alloc_ring_buffer(struct ring_buffer *rb,
 	}
 
 	for (i = 0; i < rb->num_pages; i++) {
-		(*rb->pages)[i] = __get_free_page(GFP_KERNEL | __GFP_DMA | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
+		(*rb->pages)[i] =  __get_free_page(GFP_KERNEL | __GFP_DMA | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
 
 		(*(rb->rbe))[i*2].frame_addr =
-			(*(rb->pages))[i];
+			(void *) (*(rb->pages))[i];
 		(*(rb->rbe))[i*2 + 1].frame_addr =
-			((*(rb->pages))[i] + SZ_2K);
+			(void *) ((*(rb->pages))[i] + SZ_2K);
 		if (!(*(rb->rbe))[i*2].frame_addr || !(*(rb->rbe))[i*2 + 1].frame_addr) {
 			printk(KERN_ERR "Failed to allocate memory dma buf\n");
 			return -ENOMEM;
@@ -1303,7 +1305,7 @@ static void delete_ring_buffer(struct ring_buffer *rb,
 		free_page((*rb->pages)[i]);
 	}
 
-	free_page(rb->rbi);
+	free_page((unsigned long) rb->rbi);
 
 	kfree(rb->pages);
 	kfree(rb->rbe);
