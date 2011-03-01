@@ -240,11 +240,6 @@ static DECLARE_WAIT_QUEUE_HEAD(space_available_queue);
 static DECLARE_WAIT_QUEUE_HEAD(received_data_from_user);
 static DECLARE_WAIT_QUEUE_HEAD(tx_rb_space_available);
 
-static int tx_dma_waiting_for_data;
-static int waiting_for_space_in_tx_rb;
-
-#define DEBUG_RX 1
-
 static DECLARE_MUTEX(dma_lock);
 
 static void usrp_e_spi_init(void);
@@ -443,7 +438,6 @@ usrp_e_cleanup(void)
 static int
 usrp_e_open(struct inode *inode, struct file *file)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
 	int ret;
 
 	printk(KERN_DEBUG "usrp_e open called, use_count = %d\n",
@@ -456,12 +450,6 @@ usrp_e_open(struct inode *inode, struct file *file)
 
 	/* reset the FPGA */
 //	writel(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
-
-#if 0
-	usrp_e_devp = container_of(inode->i_cdev, struct usrp_e_dev, cdev);
-
-	file->private_data = usrp_e_devp;
-#endif
 
 	ret = init_dma_controller();
 	if (ret < 0)
@@ -531,73 +519,14 @@ usrp_e_release(struct inode *inode, struct file *file)
 static ssize_t
 usrp_e_read(struct file *file, char *buf, size_t count, loff_t *ppos)
 {
-	size_t ret;
-	int rx_pkt_len;
 
-	if (count > SZ_2K)
-		return -EMSGSIZE;
-
-	if (!((*rx_rb.rbi)[rx_rb_read].flags & RB_USER)) {
-		if (wait_event_interruptible(data_received_queue,
-			      (((*rx_rb.rbi)[rx_rb_read].flags & RB_USER))))
-			return -EINTR;
-	}
-
-	rx_pkt_len = (*rx_rb.rbi)[rx_rb_read].len;
-	ret = copy_to_user(buf, (*rx_rb.rbe)[rx_rb_read].frame_addr, rx_pkt_len);
-
-	(*rx_rb.rbi)[rx_rb_read].flags = RB_KERNEL;
-
-	rx_rb_read++;
-	if (rx_rb_read == rb_size.num_rx_frames)
-		rx_rb_read = 0;
-
-	get_frame_from_fpga_start();
-
-	return ((ret == 0) ?  rx_pkt_len : -ret);
+	return count;
 }
 
 static ssize_t
 usrp_e_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
-	size_t ret;
 
-#if 0
-//	printk("In write.\n");
-
-	/* Trigger a DMA transfer. Used to start transmit after writing */
-	/* data into the transmit ring buffer from user space */
-	if (count < 0) {
-		send_frame_to_fpga_start();
-		return 0;
-	}
-
-	if (count > SZ_2K)
-		return -EMSGSIZE;
-
-//	printk("Write flags: %d\n", (*tx_rb.rbe)[tx_rb_write].flags);
-	if (!((*tx_rb.rbi)[tx_rb_write].flags & RB_KERNEL)) {
-		waiting_for_space_in_tx_rb = 1;
-//		printk("Sleeping\n");
-		if (wait_event_interruptible(tx_rb_space_available,
-			       ((*tx_rb.rbi)[tx_rb_write].flags & RB_KERNEL)))
-			return -EINTR;
-//		printk("Waking\n");
-	}
-
-	ret = copy_from_user((*tx_rb.rbe)[tx_rb_write].frame_addr, buf, count);
-	if (ret)
-		return -ret;
-
-	(*tx_rb.rbi)[tx_rb_write].len = count;
-	(*tx_rb.rbi)[tx_rb_write].flags = RB_USER;
-
-	tx_rb_write++;
-	if (tx_rb_write == rb_size.num_tx_frames)
-		tx_rb_write = 0;
-
-//	printk("Calling send_to_fpga_start from write\n");
-#endif
 	send_frame_to_fpga_start();
 
 	return count;
@@ -673,7 +602,6 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 static int usrp_e_get_rb_info(unsigned long arg)
 {
 	struct usrp_e_ring_buffer_size_t __user *argp = (struct usrp_e_ring_buffer_size_t __user *) arg;
-	int i;
 
 	if (copy_to_user(argp, &rb_size, sizeof(rb_size)))
 		return -EFAULT;
@@ -1052,18 +980,9 @@ static irqreturn_t space_available_irqhandler(int irq, void *dev_id)
 {
 	int serviced = IRQ_NONE;
 
-#ifdef DEBUG_TX
-	gpio_set_value(22, 1);
-#endif
-
-//	printk("Calling send_to_fpga_start from space_available irq\n");
 	send_frame_to_fpga_start();
 
 	serviced = IRQ_HANDLED;
-
-#ifdef DEBUG_TX
-	gpio_set_value(22, 0);
-#endif
 
 	return serviced;
 }
@@ -1071,37 +990,18 @@ static irqreturn_t space_available_irqhandler(int irq, void *dev_id)
 static void usrp_rx_dma_irq(int ch, u16 stat, void *data)
 {
 
-#ifdef DEBUG_RX
-	gpio_set_value(23, 1);
-#endif
-
 	rx_dma_active = 0;
 
 	get_frame_from_fpga_finish();
 
-#ifdef DEBUG_RX
-	gpio_set_value(23, 0);
-#endif
 }
 
 static void usrp_tx_dma_irq(int ch, u16 stat, void *data)
 {
 
-#ifdef DEBUG_TX
-	gpio_set_value(23, 1);
-#endif
 	tx_dma_active = 0;
 
 	send_frame_to_fpga_finish();
-
-#ifdef DEBUG_TX
-	gpio_set_value(23, 0);
-#endif
-
-/* Save
-	gpio_set_value(21, 1);
-	gpio_set_value(21, 0);
-*/
 
 }
 
@@ -1109,17 +1009,10 @@ static irqreturn_t data_ready_irqhandler(int irq, void *dev_id)
 {
 	int serviced = IRQ_NONE;
 
-#ifdef DEBUG_RX
-	gpio_set_value(22, 1);
-#endif
-
 	get_frame_from_fpga_start();
 
 	serviced = IRQ_HANDLED;
 
-#ifdef DEBUG_RX
-	gpio_set_value(22, 0);
-#endif
 	return serviced;
 }
 
@@ -1244,9 +1137,6 @@ static int get_frame_from_fpga_start()
 	if (((*rx_rb.rbi)[rx_rb_write].flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !rx_dma_active  && !shutting_down) {
 
 		rx_dma_active = 1;
-#ifdef DEBUG_RX
-		gpio_set_value(14, 1);
-#endif
 
 		elements_to_read = readw(p->ctl_addr + UE_REG_MISC_RX_LEN);
 		
@@ -1285,10 +1175,6 @@ static int get_frame_from_fpga_finish()
 
 	get_frame_from_fpga_start();
 
-#ifdef DEBUG_RX
-	gpio_set_value(14, 0);
-#endif
-
 	return 0;
 }
 
@@ -1310,9 +1196,6 @@ static int send_frame_to_fpga_start()
 	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
 		tx_dma_active = 1;
-#ifdef DEBUG_TX
-		gpio_set_value(14, 1);
-#endif
 
 		elements_to_write = ((rbi->len) >> 1);
 		
@@ -1356,10 +1239,6 @@ static int send_frame_to_fpga_finish()
 	tx_dma_active = 0;
 
 	send_frame_to_fpga_start();
-
-#ifdef DEBUG_TX
-	gpio_set_value(14, 0);
-#endif
 
 	return 0;
 }
@@ -1458,60 +1337,3 @@ static void init_ring_buffer(struct ring_buffer *rb, int num_bufs,
 
 }
 
-#if 0
-static int tx_dma_func(void *data)
-{
-	int ret;
-	struct sched_param s = { .sched_priority = 1};
-
-	printk(KERN_DEBUG "In tx_dma_func\n");
-
-	allow_signal(SIGSTOP);
-
-	sched_setscheduler(current, SCHED_FIFO, &s);
-
-	while (!kthread_should_stop() && !closing_driver) {
-
-		if (!((*tx_rb.rbe)[tx_rb_read].flags & RB_USER)) {
-			tx_dma_waiting_for_data = 1;
-			ret = wait_event_interruptible(received_data_from_user,
-				     (*tx_rb.rbe)[tx_rb_read].flags & RB_USER);
-			if (ret) {
-				printk(KERN_DEBUG
-					"tx_dma_func received signal %d\n",
-					ret);
-				if (closing_driver)
-					break;
-
-			}
-			tx_dma_waiting_for_data = 0;
-		}
-
-		if (wait_event_interruptible(space_available_queue,
-				gpio_get_value(TX_SPACE_AVAILABLE_GPIO))) {
-			printk(KERN_DEBUG "tx_dma received signal waiting for space.\n");
-			if (closing_driver)
-				break;
-		}
-
-		if (send_frame_to_fpga(&(*tx_rb.rbe)[tx_rb_read]) != 0) {
-			printk(KERN_DEBUG "send_frame received signal.\n");
-			if (closing_driver)
-				break;
-		}
-
-		(*tx_rb.rbe)[tx_rb_read].flags = RB_KERNEL;
-
-		tx_rb_read++;
-		if (tx_rb_read == RB_SIZE)
-			tx_rb_read = 0;
-
-#if 0
-		if (waiting_for_space_in_tx_rb)
-#endif
-			wake_up_interruptible(&tx_rb_space_queue);
-
-	}
-	return 0;
-}
-#endif
