@@ -897,8 +897,6 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 	int err;
 	struct page *page;
 
-	printk("In mmap\n");
-
 	if (vma->vm_pgoff)
 		return -EINVAL;
 
