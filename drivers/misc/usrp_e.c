@@ -1148,10 +1148,10 @@ writew(2, p->ctl_addr + 54);
 					elements_to_read);
 		
 writew(3, p->ctl_addr + 54);
-		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
+		omap_start_dma(rx_dma->ch);
 
 writew(4, p->ctl_addr + 54);
-		omap_start_dma(rx_dma->ch);
+		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
 	}
 
 	return 0;
