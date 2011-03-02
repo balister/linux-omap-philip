@@ -208,12 +208,11 @@ static struct usrp_e_ring_buffer_size_t rb_size;
 #define NUM_PAGES_TX_FLAGS 1
 #define NUM_TX_FRAMES 100
 
-static int tx_rb_write;
 static int tx_rb_read;
 static int rx_rb_write;
-static int rx_rb_read;
 
 static DEFINE_SPINLOCK(tx_rb_read_lock);
+static DEFINE_SPINLOCK(rx_rb_write_lock);
 
 static int alloc_ring_buffer(struct ring_buffer *rb,
 			unsigned int num_bufs, enum dma_data_direction direction);
@@ -455,11 +454,8 @@ usrp_e_open(struct inode *inode, struct file *file)
 	if (ret < 0)
 		return ret;
 
-	tx_rb_write = 0;
 	tx_rb_read = 0;
-
 	rx_rb_write = 0;
-	rx_rb_read = 0;
 
 	tx_dma_active = 0;
 	rx_dma_active = 0;
@@ -845,9 +841,7 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 	/* Make sure to read in case the rx ring buffer is full */
 	get_frame_from_fpga_start();
 
-	// This likely needs some locking. The pointer is incremented
-	// before the flag state is updated.
-
+	spin_lock_irqsave(&rx_rb_write_lock, flags);
 	if (rx_rb_write == 0) {
 		if ((*rx_rb.rbi)[rb_size.num_rx_frames - 1].flags & RB_USER)
 			mask |= POLLIN | POLLRDNORM;
@@ -855,6 +849,7 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 		if ((*rx_rb.rbi)[rx_rb_write - 1].flags & RB_USER)
 			mask |= POLLIN | POLLRDNORM;
 	}
+	spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
 	if (tx_rb_read == 0) {
@@ -1126,9 +1121,15 @@ static void release_dma_controller()
 static int get_frame_from_fpga_start()
 {
 	struct usrp_e_dev *p = usrp_e_devp;
-	struct ring_buffer_info *rbi = &(*rx_rb.rbi)[rx_rb_write];
-	struct ring_buffer_entry *rbe = &(*rx_rb.rbe)[rx_rb_write];
+	struct ring_buffer_info *rbi;
+	struct ring_buffer_entry *rbe;
 	u16 elements_to_read;
+	unsigned long flags;
+
+	spin_lock_irqsave(&rx_rb_write_lock, flags);
+
+	rbi = &(*rx_rb.rbi)[rx_rb_write];
+	rbe = &(*rx_rb.rbe)[rx_rb_write];
 
 	/* Check for space available in the ring buffer */
 	/* If no space, drop data. A read call will restart dma transfers. */
@@ -1148,24 +1149,31 @@ writew(2, p->ctl_addr + 54);
 					elements_to_read);
 		
 writew(3, p->ctl_addr + 54);
+		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
+
 		omap_start_dma(rx_dma->ch);
 
 writew(4, p->ctl_addr + 54);
 		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
+	} else {
+		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 	}
-
 	return 0;
 }
 
 
 static int get_frame_from_fpga_finish()
 {
+	unsigned long flags;
+
 	dma_sync_single_for_cpu(NULL, (*rx_rb.rbe)[rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
 
+	spin_lock_irqsave(&rx_rb_write_lock, flags);
 	(*rx_rb.rbi)[rx_rb_write].flags = RB_USER;
 	rx_rb_write++;
 	if (rx_rb_write == rb_size.num_rx_frames)
 		rx_rb_write = 0;
+	spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 
 	wake_up_interruptible(&data_received_queue);
 
