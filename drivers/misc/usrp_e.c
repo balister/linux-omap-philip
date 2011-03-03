@@ -1141,19 +1141,19 @@ static int get_frame_from_fpga_start()
 		
 		rbi->flags = RB_DMA_ACTIVE;
 		
-writew(1, p->ctl_addr + 54);
+// writew(1, p->ctl_addr + 54);
 		rbi->len = elements_to_read << 1;
 		
-writew(2, p->ctl_addr + 54);
+// writew(2, p->ctl_addr + 54);
 		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
 					elements_to_read);
 		
-writew(3, p->ctl_addr + 54);
+// writew(3, p->ctl_addr + 54);
 		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 
 		omap_start_dma(rx_dma->ch);
 
-writew(4, p->ctl_addr + 54);
+// writew(4, p->ctl_addr + 54);
 		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
 	} else {
 		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
@@ -1211,16 +1211,16 @@ static int send_frame_to_fpga_start()
 		
 		rbi->flags = RB_DMA_ACTIVE;
 		
-writew(1, p->ctl_addr + 54);
+// writew(1, p->ctl_addr + 54);
 		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
 					elements_to_write);
 		
 		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
-writew(2, p->ctl_addr + 54);
+// writew(2, p->ctl_addr + 54);
 //		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
 		dsb();
 		
-writew(3, p->ctl_addr + 54);
+// writew(3, p->ctl_addr + 54);
 		omap_start_dma(tx_dma->ch);
 	} else {
 		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
