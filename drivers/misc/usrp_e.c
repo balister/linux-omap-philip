@@ -329,10 +329,6 @@ usrp_e_init(void)
 
 	p->ctl_addr = ioremap_nocache(p->control_mem_base, SZ_2K);
 
-	/* Initialize wishbone SPI and I2C interfaces */
-
-	usrp_e_spi_init();
-	usrp_e_i2c_init();
 
 	/* Configure GPIO's */
 
@@ -373,7 +369,6 @@ usrp_e_init(void)
 		printk(KERN_ERR "Could not claim GPIO for Debug3\n");
 		return -1;
 	}
-
 
 	rb_size.num_pages_rx_flags = NUM_PAGES_RX_FLAGS;
 	rb_size.num_rx_frames = NUM_RX_FRAMES;
@@ -437,6 +432,7 @@ usrp_e_cleanup(void)
 static int
 usrp_e_open(struct inode *inode, struct file *file)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	int ret;
 
 	printk(KERN_DEBUG "usrp_e open called, use_count = %d\n",
@@ -448,7 +444,12 @@ usrp_e_open(struct inode *inode, struct file *file)
 	}
 
 	/* reset the FPGA */
-//	writel(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
+	writel(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
+
+	/* Initialize wishbone SPI and I2C interfaces */
+
+	usrp_e_spi_init();
+	usrp_e_i2c_init();
 
 	ret = init_dma_controller();
 	if (ret < 0)
