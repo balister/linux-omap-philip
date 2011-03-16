@@ -444,7 +444,7 @@ usrp_e_open(struct inode *inode, struct file *file)
 	}
 
 	/* reset the FPGA */
-	writel(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
+	writew(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
 
 	/* Initialize wishbone SPI and I2C interfaces */
 
@@ -611,14 +611,14 @@ static void usrp_e_spi_init()
 	struct usrp_e_dev *p = usrp_e_devp;
 
 	p->ctl_spi = (struct spi_regs_wb *)(p->ctl_addr + CTL_SPI_BASE);
-	p->ctl_spi->div = 64; /* 1 = Div by 4 (12.5 MHz) */
+	writel(64, &p->ctl_spi->div); /* 1 = Div by 4 (12.5 MHz) */
 }
 
 static int usrp_e_spi_wait(void)
 {
 	struct usrp_e_dev *p = usrp_e_devp;
 
-	while (p->ctl_spi->ctrl & UE_SPI_CTRL_GO_BSY) {
+	while (readl(&p->ctl_spi->ctrl) & UE_SPI_CTRL_GO_BSY) {
 		if (signal_pending(current)) {
 			printk(KERN_DEBUG "Signal received.\n");
 			set_current_state(TASK_RUNNING);
@@ -648,12 +648,12 @@ static int usrp_e_spi(unsigned long __user arg)
 	if (ret < 0)
 		return ret;
 
-	p->ctl_spi->ss = spi_cmd.slave & 0xff;
+	writel((spi_cmd.slave & 0xff), &p->ctl_spi->ss);
 
-	p->ctl_spi->txrx0 = spi_cmd.data;
+	writel(spi_cmd.data, &p->ctl_spi->txrx0);
 
-	p->ctl_spi->ctrl = ctrl;
-	p->ctl_spi->ctrl = ctrl | UE_SPI_CTRL_GO_BSY;
+	writel(ctrl, &p->ctl_spi->ctrl);
+	writel((ctrl | UE_SPI_CTRL_GO_BSY), &p->ctl_spi->ctrl);
 
 	if (spi_cmd.readback) {
 		usrp_e_spi_wait();
