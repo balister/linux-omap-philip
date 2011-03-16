@@ -28,6 +28,7 @@
 #include "linux/kthread.h"
 #include "linux/poll.h"
 #include "linux/slab.h"
+#include "linux/delay.h"
 
 #include "plat/gpmc.h"
 #include "plat/gpio.h"
@@ -445,6 +446,7 @@ usrp_e_open(struct inode *inode, struct file *file)
 
 	/* reset the FPGA */
 	writew(0, p->ctl_addr + UE_SR_CLEAR_GLOBAL);
+	mdelay(1);
 
 	/* Initialize wishbone SPI and I2C interfaces */
 
