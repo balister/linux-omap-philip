@@ -715,6 +715,9 @@ static void __init usrp1_e_init(void)
 
 // Set up CS4, data read/write
 
+	gpmc_cs_write_reg(4, GPMC_CS_CONFIG7, 0x0);
+	udelay(100);
+
 #if 1
 	// Signal control parameters per chip select
 	tmp = gpmc_cs_read_reg(4, GPMC_CS_CONFIG1);
@@ -736,7 +739,7 @@ static void __init usrp1_e_init(void)
 	gpmc_cs_write_reg(4, GPMC_CS_CONFIG2, tmp);
 #endif 
 
-#if 0
+#if 1
 	// nADV signal timing parameter configuration
         tmp = 0;
         tmp |= GPMC_CONFIG3_ADVONTIME(1);
@@ -782,6 +785,9 @@ static void __init usrp1_e_init(void)
 
 // Configure timing for CS6, wishbone access
 
+	gpmc_cs_write_reg(6, GPMC_CS_CONFIG7, 0x0);
+	udelay(100);
+
 #if 1
 	// Signal control parameters per chip select
 	tmp = gpmc_cs_read_reg(6, GPMC_CS_CONFIG1);
@@ -803,7 +809,7 @@ static void __init usrp1_e_init(void)
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG2, tmp);
 #endif 
 
-#if 0
+#if 1
 	// nADV signal timing parameter configuration
         tmp = 0;
         tmp |= GPMC_CONFIG3_ADVONTIME(1);
