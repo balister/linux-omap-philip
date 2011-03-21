@@ -963,7 +963,7 @@ static const struct file_operations usrp_e_fops = {
 	.mmap           =       usrp_e_mmap,
 };
 
-MODULE_VERSION("0.1");
+MODULE_VERSION("0.2");
 MODULE_ALIAS(DEVICE_NAME);
 MODULE_DESCRIPTION(DEVICE_NAME);
 MODULE_AUTHOR("Philip Balister <philip@opensdr.com>");
