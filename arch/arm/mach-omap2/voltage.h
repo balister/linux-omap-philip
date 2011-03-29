@@ -110,13 +110,13 @@ struct omap_volt_pmic_info {
 	u32 ret_volt;
 	u32 off_volt;
 	u16 volt_setup_time;
+	u16 i2c_slave_addr;
 	u8 vp_erroroffset;
 	u8 vp_vstepmin;
 	u8 vp_vstepmax;
 	u8 vp_vddmin;
 	u8 vp_vddmax;
 	u8 vp_timeout_us;
-	u8 i2c_slave_addr;
 	u8 volt_reg_addr;
 	u8 cmd_reg_addr;
 	unsigned long (*vsel_to_uv) (const u8 vsel);
