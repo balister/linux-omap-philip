@@ -838,10 +838,10 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 	poll_wait(filp, &data_received_queue, wait);
 	poll_wait(filp, &tx_rb_space_available, wait);
 
-	// Make sure write is active before sleeping
+	/* Make sure write is active (if needed) before sleeping */
 	send_frame_to_fpga_start();
 
-	/* Make sure to read in case the rx ring buffer is full */
+	/* Make sure to read in case the rx ring buffer is empty */
 	get_frame_from_fpga_start();
 
 	spin_lock_irqsave(&rx_rb_write_lock, flags);
