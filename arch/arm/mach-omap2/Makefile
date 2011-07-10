@@ -246,14 +246,11 @@ obj-$(CONFIG_MACH_IGEP0020)		+= board-igep0020.o \
 obj-$(CONFIG_MACH_OMAP3_TOUCHBOOK)	+= board-omap3touchbook.o \
 					   hsmmc.o
 obj-$(CONFIG_MACH_OMAP_4430SDP)		+= board-4430sdp.o \
-					   hsmmc.o \
-					   omap_phy_internal.o
+					   hsmmc.o
 obj-$(CONFIG_MACH_OMAP4_PANDA)		+= board-omap4panda.o \
-					   hsmmc.o \
-					   omap_phy_internal.o
+					   hsmmc.o
 
-obj-$(CONFIG_MACH_OMAP3517EVM)		+= board-am3517evm.o \
-					   omap_phy_internal.o \
+obj-$(CONFIG_MACH_OMAP3517EVM)		+= board-am3517evm.o
 
 obj-$(CONFIG_MACH_CRANEBOARD)		+= board-am3517crane.o
 
@@ -264,6 +261,8 @@ obj-$(CONFIG_MACH_TI8168EVM)		+= board-ti8168evm.o
 usbfs-$(CONFIG_ARCH_OMAP_OTG)		:= usb-fs.o
 obj-y					+= $(usbfs-m) $(usbfs-y)
 obj-y					+= usb-musb.o
+obj-y					+= omap_phy_internal.o
+
 obj-$(CONFIG_MACH_OMAP2_TUSB6010)	+= usb-tusb6010.o
 obj-y					+= usb-host.o
 
