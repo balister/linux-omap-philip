@@ -3340,6 +3340,7 @@ int __init omap4xxx_clk_init(void)
 	}
 
 	clk_init(&omap2_clk_functions);
+	omap2_clk_disable_clkdm_control();
 
 	for (c = omap44xx_clks; c < omap44xx_clks + ARRAY_SIZE(omap44xx_clks);
 									  c++)
