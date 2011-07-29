@@ -560,6 +560,18 @@ static struct gpio overo_bt_gpios[] __initdata = {
 	{ OVERO_GPIO_BT_NRESET, GPIOF_OUT_INIT_HIGH,	"lcd bl enable" },
 };
 
+static struct omap_musb_board_data musb_board_data = {
+	.interface_type		= MUSB_INTERFACE_ULPI,
+#if defined(CONFIG_USB_MUSB_OTG)
+	.mode			= MUSB_OTG,
+#elif defined(CONFIG_USB_GADGET_MUSB_HDRC)
+	.mode			= MUSB_PERIPHERAL,
+#else
+	.mode			= MUSB_HOST,
+#endif
+	.power			= 100,
+};
+
 static void __init overo_init(void)
 {
 	int ret;
@@ -570,7 +582,7 @@ static void __init overo_init(void)
 	omap_serial_init();
 	omap_nand_flash_init(0, overo_nand_partitions,
 			     ARRAY_SIZE(overo_nand_partitions));
-	usb_musb_init(NULL);
+	usb_musb_init(&musb_board_data);
 	usbhs_init(&usbhs_bdata);
 	overo_spi_init();
 	overo_ads7846_init();
