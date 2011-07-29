@@ -566,6 +566,18 @@ static void __init beagle_opp_init(void)
 	return;
 }
 
+static struct omap_musb_board_data musb_board_data = {
+	.interface_type		= MUSB_INTERFACE_ULPI,
+#if defined(CONFIG_USB_MUSB_OTG)
+	.mode			= MUSB_OTG,
+#elif defined(CONFIG_USB_GADGET_MUSB_HDRC)
+	.mode			= MUSB_PERIPHERAL,
+#else
+	.mode			= MUSB_HOST,
+#endif
+	.power			= 100,
+};
+
 static void __init omap3_beagle_init(void)
 {
 	omap3_mux_init(board_mux, OMAP_PACKAGE_CBB);
@@ -580,7 +592,7 @@ static void __init omap3_beagle_init(void)
 	/* REVISIT leave DVI powered down until it's needed ... */
 	gpio_request_one(170, GPIOF_OUT_INIT_HIGH, "DVI_nPD");
 
-	usb_musb_init(NULL);
+	usb_musb_init(&musb_board_data);
 	usbhs_init(&usbhs_bdata);
 	omap_nand_flash_init(NAND_BUSWIDTH_16, omap3beagle_nand_partitions,
 			     ARRAY_SIZE(omap3beagle_nand_partitions));
