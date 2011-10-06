@@ -467,6 +467,13 @@ void omap2_check_revision(void);
 
 /*
  * Runtime detection of OMAP3 features
+ *
+ * OMAP3_HAS_IO_CHAIN_CTRL: Some later members of the OMAP3 chip
+ *    family have OS-level control over the I/O chain clock.  This is
+ *    to avoid a window during which wakeups could potentially be lost
+ *    during powerdomain transitions.  If this bit is set, it
+ *    indicates that the chip does support OS-level control of this
+ *    feature.
  */
 extern u32 omap3_features;
 
@@ -479,6 +486,7 @@ extern u32 omap3_features;
 #define OMAP3_HAS_IO_WAKEUP		BIT(6)
 #define OMAP3_HAS_SDRC			BIT(7)
 #define OMAP3_HAS_720MHZ		BIT(8)
+#define OMAP3_HAS_IO_CHAIN_CTRL		BIT(9)
 
 #define OMAP3_HAS_FEATURE(feat,flag)			\
 static inline unsigned int omap3_has_ ##feat(void)	\
@@ -495,5 +503,6 @@ OMAP3_HAS_FEATURE(192mhz_clk, 192MHZ_CLK)
 OMAP3_HAS_FEATURE(io_wakeup, IO_WAKEUP)
 OMAP3_HAS_FEATURE(sdrc, SDRC)
 OMAP3_HAS_FEATURE(720mhz, 720MHZ)
+OMAP3_HAS_FEATURE(io_chain_ctrl, IO_CHAIN_CTRL)
 
 #endif

@@ -105,31 +105,28 @@ static void omap3_enable_io_chain(void)
 {
 	int timeout = 0;
 
-	if (omap_rev() >= OMAP3430_REV_ES3_1) {
-		omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_CHAIN_MASK, WKUP_MOD,
-				     PM_WKEN);
-		/* Do a readback to assure write has been done */
-		omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN);
+	omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_CHAIN_MASK, WKUP_MOD,
+				   PM_WKEN);
+	/* Do a readback to assure write has been done */
+	omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN);
 
-		while (!(omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN) &
-			 OMAP3430_ST_IO_CHAIN_MASK)) {
-			timeout++;
-			if (timeout > 1000) {
-				printk(KERN_ERR "Wake up daisy chain "
-				       "activation failed.\n");
-				return;
-			}
-			omap2_prm_set_mod_reg_bits(OMAP3430_ST_IO_CHAIN_MASK,
-					     WKUP_MOD, PM_WKEN);
+	while (!(omap2_prm_read_mod_reg(WKUP_MOD, PM_WKEN) &
+		 OMAP3430_ST_IO_CHAIN_MASK)) {
+		timeout++;
+		if (timeout > 1000) {
+			printk(KERN_ERR "Wake up daisy chain "
+			       "activation failed.\n");
+			return;
 		}
+		omap2_prm_set_mod_reg_bits(OMAP3430_ST_IO_CHAIN_MASK,
+					   WKUP_MOD, PM_WKEN);
 	}
 }
 
 static void omap3_disable_io_chain(void)
 {
-	if (omap_rev() >= OMAP3430_REV_ES3_1)
-		omap2_prm_clear_mod_reg_bits(OMAP3430_EN_IO_CHAIN_MASK, WKUP_MOD,
-				       PM_WKEN);
+	omap2_prm_clear_mod_reg_bits(OMAP3430_EN_IO_CHAIN_MASK, WKUP_MOD,
+				     PM_WKEN);
 }
 
 static void omap3_core_save_context(void)
@@ -388,7 +385,8 @@ void omap_sram_idle(void)
 	    (per_next_state < PWRDM_POWER_ON ||
 	     core_next_state < PWRDM_POWER_ON)) {
 		omap2_prm_set_mod_reg_bits(OMAP3430_EN_IO_MASK, WKUP_MOD, PM_WKEN);
-		omap3_enable_io_chain();
+		if (omap3_has_io_chain_ctrl())
+			omap3_enable_io_chain();
 	}
 
 	/* Block console output in case it is on one of the OMAP UARTs */
@@ -487,7 +485,8 @@ console_still_active:
 	     core_next_state < PWRDM_POWER_ON)) {
 		omap2_prm_clear_mod_reg_bits(OMAP3430_EN_IO_MASK, WKUP_MOD,
 					     PM_WKEN);
-		omap3_disable_io_chain();
+		if (omap3_has_io_chain_ctrl())
+			omap3_disable_io_chain();
 	}
 
 	pwrdm_post_transition();
@@ -876,6 +875,9 @@ static int __init omap3_pm_init(void)
 
 	if (!cpu_is_omap34xx())
 		return -ENODEV;
+
+	if (!omap3_has_io_chain_ctrl())
+		pr_warning("PM: no software I/O chain control; some wakeups may be lost\n");
 
 	pm_errata_configure();
 
