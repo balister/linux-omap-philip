@@ -2116,6 +2116,11 @@ static int __init omap_hsmmc_probe(struct platform_device *pdev)
 	omap_hsmmc_context_save(host);
 
 	mmc->caps |= MMC_CAP_DISABLE;
+	if (host->pdata->controller_flags & OMAP_HSMMC_BROKEN_MULTIBLOCK_READ) {
+		dev_info(&pdev->dev, "multiblock reads disabled due to 35xx erratum 2.1.1.128; MMC read performance may suffer\n");
+		mmc->caps |= MMC_CAP_NO_MULTI_READ;
+	}
+
 	mmc_set_disable_delay(mmc, OMAP_MMC_DISABLED_TIMEOUT);
 	/* we start off in DISABLED state */
 	host->dpm_state = DISABLED;
