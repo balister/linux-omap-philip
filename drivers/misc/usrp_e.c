@@ -64,15 +64,15 @@ struct dma_data {
 	int ch;
 	struct omap_dma_channel_params params;
 
-	unsigned long phys_from;
-	unsigned long phys_to;
+	dma_addr_t phys_from;
+	dma_addr_t phys_to;
 };
 
 static struct dma_data *rx_dma;
 static struct dma_data *tx_dma;
 
 struct ring_buffer_entry {
-	unsigned long dma_addr;
+	dma_addr_t dma_addr;
 	__u8 *frame_addr;
 };
 
