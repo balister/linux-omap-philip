@@ -13,32 +13,32 @@
  * published by the Free Software Foundation.
  */
 
-#include "linux/fs.h"
-#include "linux/module.h"
-#include "linux/cdev.h"
-#include "linux/device.h"
-#include "linux/spinlock.h"
-#include "linux/errno.h"
-#include "linux/irq.h"
-#include "linux/interrupt.h"
-#include "linux/wait.h"
-#include "linux/sched.h"
-#include "linux/dma-mapping.h"
-#include "linux/semaphore.h"
-#include "linux/kthread.h"
-#include "linux/poll.h"
-#include "linux/slab.h"
-#include "linux/delay.h"
+#include <linux/fs.h>
+#include <linux/module.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/spinlock.h>
+#include <linux/errno.h>
+#include <linux/irq.h>
+#include <linux/interrupt.h>
+#include <linux/wait.h>
+#include <linux/sched.h>
+#include <linux/dma-mapping.h>
+#include <linux/semaphore.h>
+#include <linux/kthread.h>
+#include <linux/poll.h>
+#include <linux/slab.h>
+#include <linux/delay.h>
+#include <linux/gpio.h>
 
 #include "plat/gpmc.h"
-#include "plat/gpio.h"
 #include "plat/dma.h"
 
 #include "asm/uaccess.h"
 #include "asm/io.h"
 #include "asm/atomic.h"
 
-#include "linux/usrp_e.h"
+#include <linux/usrp_e.h>
 
 #define TX_SPACE_AVAILABLE_GPIO	144
 #define RX_DATA_READY_GPIO	146
