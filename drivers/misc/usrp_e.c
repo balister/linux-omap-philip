@@ -334,7 +334,7 @@ usrp_e_release(struct inode *inode, struct file *file)
 	}
 
 	printk(KERN_DEBUG "Waiting for DMA to become inactive\n");
-	shutting_down = 0;
+	shutting_down = 1;
 	while (tx_dma_active || rx_dma_active)
 		cpu_relax();
 
