@@ -64,8 +64,6 @@ struct dma_data {
 	int ch;
 	struct omap_dma_channel_params params;
 
-	unsigned long virt_from;
-	unsigned long virt_to;
 	unsigned long phys_from;
 	unsigned long phys_to;
 };
