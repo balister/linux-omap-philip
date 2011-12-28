@@ -44,11 +44,13 @@
 #define RX_DATA_READY_GPIO	146
 
 static atomic_t use_count = ATOMIC_INIT(0);
-static atomic_t mapped = ATOMIC_INIT(0);
-static int shutting_down;
 
 struct usrp_e_dev {
 	struct cdev cdev;
+
+	atomic_t mapped;
+	int shutting_down;
+
 	unsigned long mem_base;
 	unsigned long control_mem_base;
 	u32 *ioaddr;
@@ -129,7 +131,7 @@ static int get_frame_from_fpga_start(void)
 
 	/* Check for space available in the ring buffer */
 	/* If no space, drop data. A read call will restart dma transfers. */
-	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !rx_dma_active  && !shutting_down) {
+	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !rx_dma_active  && !p->shutting_down) {
 
 		rx_dma_active = 1;
 
@@ -225,7 +227,7 @@ static int send_frame_to_fpga_start(void)
 	rbi = &(*tx_rb.rbi)[tx_rb_read];
 	rbe = &(*tx_rb.rbe)[tx_rb_read];
 
-	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
+	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !p->shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
 		tx_dma_active = 1;
 
@@ -524,6 +526,7 @@ static int __init usrp_e_init(void)
 
 	printk(KERN_DEBUG "usrp_e data struct malloc'd.\n");
 
+	atomic_set(&p->mapped, 0);
 	atomic_set(&p->n_underruns, 0);
 	atomic_set(&p->n_overruns, 0);
 
@@ -602,7 +605,7 @@ static int __init usrp_e_init(void)
 	/* Initialize various DMA related flags */
 	rx_dma_active = 0;
 	tx_dma_active = 0;
-	shutting_down = 0;
+	p->shutting_down = 0;
 
 	printk(KERN_DEBUG "usrp_e Driver Initialized.\n");
 
@@ -644,6 +647,7 @@ static void __exit usrp_e_cleanup(void)
 
 static int usrp_e_open(struct inode *inode, struct file *file)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	int ret;
 
 	printk(KERN_DEBUG "usrp_e open called, use_count = %d\n",
@@ -663,7 +667,7 @@ static int usrp_e_open(struct inode *inode, struct file *file)
 
 	tx_dma_active = 0;
 	rx_dma_active = 0;
-	shutting_down = 0;
+	p->shutting_down = 0;
 
 	init_ring_buffer(&rx_rb, rb_size.num_rx_frames, RB_KERNEL, DMA_FROM_DEVICE);
 	init_ring_buffer(&tx_rb, rb_size.num_tx_frames, RB_KERNEL, DMA_TO_DEVICE);
@@ -684,7 +688,7 @@ static int usrp_e_open(struct inode *inode, struct file *file)
 
 static int usrp_e_release(struct inode *inode, struct file *file)
 {
-	struct usrp_e_dev *usrp_e_devp = file->private_data;
+	struct usrp_e_dev *p = usrp_e_devp;
 
 	printk(KERN_DEBUG "usrp_e release called\n");
 
@@ -694,7 +698,7 @@ static int usrp_e_release(struct inode *inode, struct file *file)
 	}
 
 	printk(KERN_DEBUG "Waiting for DMA to become inactive\n");
-	shutting_down = 1;
+	p->shutting_down = 1;
 	while (tx_dma_active || rx_dma_active)
 		cpu_relax();
 
@@ -877,14 +881,16 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 
 static void usrp_e_mm_open(struct vm_area_struct *vma)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 
-	atomic_inc(&mapped);
+	atomic_inc(&p->mapped);
 }
 
 static void usrp_e_mm_close(struct vm_area_struct *vma)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 
-	atomic_dec(&mapped);
+	atomic_dec(&p->mapped);
 }
 
 static const struct vm_operations_struct usrp_e_mmap_ops = {
