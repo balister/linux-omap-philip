@@ -99,14 +99,6 @@ static int rx_rb_write;
 static DEFINE_SPINLOCK(tx_rb_read_lock);
 static DEFINE_SPINLOCK(rx_rb_write_lock);
 
-static int alloc_ring_buffer(struct ring_buffer *rb,
-			unsigned int num_bufs, enum dma_data_direction direction);
-static void delete_ring_buffer(struct ring_buffer *rb,
-			unsigned int num_bufs, enum dma_data_direction direction);
-static int alloc_ring_buffers(void);
-static void init_ring_buffer(struct ring_buffer *rb, int num_bufs,
-			int init_flags, enum dma_data_direction direction);
-
 static dev_t usrp_e_dev_number;
 static struct class *usrp_e_class;
 
@@ -114,25 +106,399 @@ static struct class *usrp_e_class;
 
 static const struct file_operations usrp_e_fops;
 
-static irqreturn_t space_available_irqhandler(int irq, void *dev_id);
-static irqreturn_t data_ready_irqhandler(int irq, void *dev_id);
-static void usrp_rx_dma_irq(int ch, u16 stat, void *data);
-static void usrp_tx_dma_irq(int ch, u16 stat, void *data);
-
 static DECLARE_WAIT_QUEUE_HEAD(data_received_queue);
 static DECLARE_WAIT_QUEUE_HEAD(space_available_queue);
 static DECLARE_WAIT_QUEUE_HEAD(received_data_from_user);
 static DECLARE_WAIT_QUEUE_HEAD(tx_rb_space_available);
 
-static int init_dma_controller(void);
-static void release_dma_controller(void);
-static int get_frame_from_fpga_start(void);
-static int get_frame_from_fpga_finish(void);
-static int send_frame_to_fpga_start(void);
-static int send_frame_to_fpga_finish(void);
-
 static int rx_dma_active;
 static int tx_dma_active;
+
+
+static int get_frame_from_fpga_start(void)
+{
+	struct usrp_e_dev *p = usrp_e_devp;
+	struct ring_buffer_info *rbi;
+	struct ring_buffer_entry *rbe;
+	u16 elements_to_read;
+	unsigned long flags;
+
+	spin_lock_irqsave(&rx_rb_write_lock, flags);
+	rbi = &(*rx_rb.rbi)[rx_rb_write];
+	rbe = &(*rx_rb.rbe)[rx_rb_write];
+
+	/* Check for space available in the ring buffer */
+	/* If no space, drop data. A read call will restart dma transfers. */
+	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !rx_dma_active  && !shutting_down) {
+
+		rx_dma_active = 1;
+
+		rbi->flags = RB_DMA_ACTIVE;
+		
+		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
+
+		elements_to_read = 2048;
+		if (elements_to_read > 2048) {
+			printk(KERN_ERR "usrp_e: FPGA has bad transfer size of %d\n", elements_to_read);
+			goto out;
+		}
+
+// writew(1, p->ctl_addr + 54);
+		rbi->len = elements_to_read;
+		
+// writew(2, p->ctl_addr + 54);
+		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
+					(elements_to_read >> 1));
+		
+// writew(3, p->ctl_addr + 54);
+		omap_start_dma(rx_dma->ch);
+
+// writew(4, p->ctl_addr + 54);
+		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
+	} else {
+		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
+	}
+
+out:
+	return 0;
+
+}
+
+
+static int get_frame_from_fpga_finish(void)
+{
+	unsigned long flags;
+
+	dma_sync_single_for_cpu(NULL, (*rx_rb.rbe)[rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
+
+	spin_lock_irqsave(&rx_rb_write_lock, flags);
+	(*rx_rb.rbi)[rx_rb_write].flags = RB_USER;
+	rx_rb_write++;
+	if (rx_rb_write == rb_size.num_rx_frames)
+		rx_rb_write = 0;
+
+	rx_dma_active = 0;
+
+	spin_unlock_irqrestore(&rx_rb_write_lock, flags);
+
+	wake_up_interruptible(&data_received_queue);
+
+	get_frame_from_fpga_start();
+
+	return 0;
+}
+
+static irqreturn_t data_ready_irqhandler(int irq, void *dev_id)
+{
+	int serviced = IRQ_NONE;
+
+	get_frame_from_fpga_start();
+
+	serviced = IRQ_HANDLED;
+
+	return serviced;
+}
+
+static void usrp_rx_dma_irq(int ch, u16 stat, void *data)
+{
+
+	rx_dma_active = 0;
+
+	get_frame_from_fpga_finish();
+
+}
+
+static int send_frame_to_fpga_start(void)
+{
+	struct usrp_e_dev *p = usrp_e_devp;
+	struct ring_buffer_info *rbi;
+	struct ring_buffer_entry *rbe;
+	u16 elements_to_write;
+	unsigned long flags;
+
+//	printk("In send_frame_to_fpga_start.\n");
+
+	/* Check if there is data to write to the FPGA, if so send it */
+	/* Otherwise, do nothing. Process is restarted by calls to write */
+
+	spin_lock_irqsave(&tx_rb_read_lock, flags);
+	rbi = &(*tx_rb.rbi)[tx_rb_read];
+	rbe = &(*tx_rb.rbe)[tx_rb_read];
+
+	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
+//		printk("In send_frame_to_fpga_start, past if.\n");
+		tx_dma_active = 1;
+
+		rbi->flags = RB_DMA_ACTIVE;
+		
+		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
+
+		elements_to_write = ((rbi->len) >> 1);
+		
+// writew(1, p->ctl_addr + 54);
+		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
+					elements_to_write);
+// writew(2, p->ctl_addr + 54);
+//		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
+		dsb();
+		
+// writew(3, p->ctl_addr + 54);
+		omap_start_dma(tx_dma->ch);
+	} else {
+		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
+	}
+
+	return 0;
+}
+
+static int send_frame_to_fpga_finish(void)
+{
+	unsigned long flags;
+
+//	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
+	
+	spin_lock_irqsave(&tx_rb_read_lock, flags);
+	(*tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
+
+	
+	tx_rb_read++;
+	if (tx_rb_read == rb_size.num_tx_frames)
+		tx_rb_read = 0;
+	
+	tx_dma_active = 0;
+
+	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
+
+	wake_up_interruptible(&tx_rb_space_available);
+
+	send_frame_to_fpga_start();
+
+	return 0;
+}
+
+static irqreturn_t space_available_irqhandler(int irq, void *dev_id)
+{
+	int serviced = IRQ_NONE;
+
+	send_frame_to_fpga_start();
+
+	serviced = IRQ_HANDLED;
+
+	return serviced;
+}
+
+static void usrp_tx_dma_irq(int ch, u16 stat, void *data)
+{
+
+	tx_dma_active = 0;
+
+	send_frame_to_fpga_finish();
+
+}
+
+static int init_dma_controller(void)
+{
+	struct usrp_e_dev *p = usrp_e_devp;
+
+	rx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
+	if (!rx_dma) {
+		printk(KERN_ERR "Failed to allocate memory for rx_dma struct.");
+		return -ENOMEM;
+	}
+
+	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-rx",
+			usrp_rx_dma_irq, (void *) rx_dma, &rx_dma->ch)) {
+		printk(KERN_ERR "Could not get rx DMA channel for usrp_e\n");
+		return -ENOMEM;
+	}
+	printk(KERN_DEBUG "rx_dma->ch %d\n", rx_dma->ch);
+
+	rx_dma->phys_from = p->mem_base;
+
+	memset(&rx_dma->params, 0, sizeof(rx_dma->params));
+	rx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
+
+	rx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
+	rx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
+
+	rx_dma->params.src_start	= p->mem_base;
+	rx_dma->params.dst_start	= rx_dma->phys_to;
+
+	rx_dma->params.src_ei		= 1;
+	rx_dma->params.src_fi		= 1;
+	rx_dma->params.dst_ei		= 1;
+	rx_dma->params.dst_fi		= 1;
+
+	rx_dma->params.elem_count	= 1024;
+	rx_dma->params.frame_count	= 1;
+
+	rx_dma->params.read_prio        = DMA_CH_PRIO_HIGH;
+	rx_dma->params.write_prio       = DMA_CH_PRIO_LOW;
+
+	omap_set_dma_params(rx_dma->ch, &rx_dma->params);
+
+// Play with these with a real application
+	omap_set_dma_src_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(rx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(rx_dma->ch, 1);
+
+#if 0 // Need to find implentations of the endian calls
+	omap_set_dma_src_endian_type(rx_dma->ch, OMAP_DMA_BIG_ENDIAN);
+	omap_set_dma_dst_endian_type(rx_dma->ch, OMAP_DMA_LITTLE_ENDIAN);
+#endif
+
+	tx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
+	if (!tx_dma) {
+		printk(KERN_ERR "Failed to allocate memory for tx_dma struct.");
+		return -ENOMEM;
+	}
+
+	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-tx",
+			usrp_tx_dma_irq, (void *) tx_dma, &tx_dma->ch)) {
+		printk(KERN_ERR "Could not get tx DMA channel for usrp_e\n");
+		return -ENOMEM;
+	}
+
+	printk(KERN_DEBUG "tx_dma->ch %d\n", tx_dma->ch);
+
+	tx_dma->phys_from = p->mem_base;
+
+	memset(&tx_dma->params, 0, sizeof(tx_dma->params));
+	tx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
+
+	tx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
+	tx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
+
+	tx_dma->params.src_start	= tx_dma->phys_from;
+	tx_dma->params.dst_start	= p->mem_base;
+
+	tx_dma->params.src_ei		= 1;
+	tx_dma->params.src_fi		= 1;
+	tx_dma->params.dst_ei		= 1;
+	tx_dma->params.dst_fi		= 1;
+
+	tx_dma->params.elem_count	= 1024;
+	tx_dma->params.frame_count	= 1;
+
+	tx_dma->params.read_prio        = DMA_CH_PRIO_LOW;
+	tx_dma->params.write_prio       = DMA_CH_PRIO_HIGH;
+
+	omap_set_dma_params(tx_dma->ch, &tx_dma->params);
+
+// Play with these with a real application
+	omap_set_dma_src_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(tx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(tx_dma->ch, 1);
+
+	return 0;
+}
+
+static void release_dma_controller(void)
+{
+
+	omap_free_dma(rx_dma->ch);
+	omap_free_dma(tx_dma->ch);
+
+	kfree(rx_dma);
+	kfree(tx_dma);
+}
+
+
+static int alloc_ring_buffer(struct ring_buffer *rb,
+			unsigned int num_bufs, enum dma_data_direction direction)
+{
+	int i;
+
+	rb->rbi = (void *) __get_free_page(GFP_KERNEL | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
+
+	rb->rbe = kzalloc(sizeof(struct ring_buffer_entry) * num_bufs, GFP_KERNEL);
+	if (!rb) {
+		printk(KERN_ERR "Failed to allocate memory for rb entries\n");
+		return -ENOMEM;
+	}
+
+	rb->num_pages = (num_bufs & 1) ? ((num_bufs + 1) / 2) : (num_bufs / 2);
+
+	rb->pages = kzalloc(sizeof(unsigned long) * rb->num_pages, GFP_KERNEL);
+	if (!(rb->pages)) {
+		printk(KERN_ERR "Failed to allocate memory for rb page entries\n");
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < rb->num_pages; i++) {
+		(*rb->pages)[i] =  __get_free_page(GFP_KERNEL | __GFP_DMA | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
+
+		(*(rb->rbe))[i*2].frame_addr =
+			(void *) (*(rb->pages))[i];
+		(*(rb->rbe))[i*2 + 1].frame_addr =
+			(void *) ((*(rb->pages))[i] + SZ_2K);
+		if (!(*(rb->rbe))[i*2].frame_addr || !(*(rb->rbe))[i*2 + 1].frame_addr) {
+			printk(KERN_ERR "Failed to allocate memory dma buf\n");
+			return -ENOMEM;
+		}
+
+		(*(rb->rbe))[i*2].dma_addr = dma_map_single(NULL, (*(rb->rbe))[i*2].frame_addr, SZ_2K, direction);
+		(*(rb->rbe))[i*2 + 1].dma_addr = dma_map_single(NULL, (*(rb->rbe))[i*2 + 1].frame_addr, SZ_2K, direction);
+		if (!(*(rb->rbe))[i*2].dma_addr || !(*(rb->rbe))[i*2 + 1].dma_addr) {
+			printk(KERN_ERR "Failed to get physical address for dma buf\n");
+			return -ENOMEM;
+		}
+	}
+
+	return 0;
+}
+
+static void delete_ring_buffer(struct ring_buffer *rb,
+			unsigned int num_bufs, enum dma_data_direction direction)
+{
+	unsigned int i;
+	unsigned int num_pages;
+
+	printk(KERN_DEBUG "Entering delete_ring_buffer\n");
+
+	num_pages = (num_bufs & 1) ? ((num_bufs + 1) / 2) : (num_bufs / 2);
+
+	for (i = 0; i < num_pages; i++) {
+		dma_unmap_single(NULL, (*rb->rbe)[i*2].dma_addr, SZ_2K, direction);
+		dma_unmap_single(NULL, (*rb->rbe)[i*2 + 1].dma_addr, SZ_2K, direction);
+		free_page((*rb->pages)[i]);
+	}
+
+	free_page((unsigned long) rb->rbi);
+
+	kfree(rb->pages);
+	kfree(rb->rbe);
+
+	printk(KERN_DEBUG "Leaving delete_ring_buffer\n");
+}
+
+static int alloc_ring_buffers(void)
+{
+
+	if (alloc_ring_buffer(&tx_rb, rb_size.num_rx_frames, DMA_TO_DEVICE) < 0)
+		return -ENOMEM;
+	if (alloc_ring_buffer(&rx_rb, rb_size.num_tx_frames, DMA_FROM_DEVICE) < 0)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void init_ring_buffer(struct ring_buffer *rb, int num_bufs,
+			int initial_flags, enum dma_data_direction direction)
+{
+	int i;
+
+	for (i = 0; i < num_bufs; i++) {
+		dma_sync_single_for_device(NULL, (*rb->rbe)[i].dma_addr,
+					SZ_2K, direction);
+		dma_sync_single_for_cpu(NULL, (*rb->rbe)[i].dma_addr,
+					SZ_2K, direction);
+		(*rb->rbi)[i].flags = initial_flags;
+	}
+
+}
 
 static int __init usrp_e_init(void)
 {
@@ -610,388 +976,3 @@ MODULE_LICENSE("GPL v2");
 
 module_init(usrp_e_init);
 module_exit(usrp_e_cleanup);
-
-static irqreturn_t space_available_irqhandler(int irq, void *dev_id)
-{
-	int serviced = IRQ_NONE;
-
-	send_frame_to_fpga_start();
-
-	serviced = IRQ_HANDLED;
-
-	return serviced;
-}
-
-static void usrp_rx_dma_irq(int ch, u16 stat, void *data)
-{
-
-	rx_dma_active = 0;
-
-	get_frame_from_fpga_finish();
-
-}
-
-static void usrp_tx_dma_irq(int ch, u16 stat, void *data)
-{
-
-	tx_dma_active = 0;
-
-	send_frame_to_fpga_finish();
-
-}
-
-static irqreturn_t data_ready_irqhandler(int irq, void *dev_id)
-{
-	int serviced = IRQ_NONE;
-
-	get_frame_from_fpga_start();
-
-	serviced = IRQ_HANDLED;
-
-	return serviced;
-}
-
-static int init_dma_controller()
-{
-	struct usrp_e_dev *p = usrp_e_devp;
-
-	rx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
-	if (!rx_dma) {
-		printk(KERN_ERR "Failed to allocate memory for rx_dma struct.");
-		return -ENOMEM;
-	}
-
-	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-rx",
-			usrp_rx_dma_irq, (void *) rx_dma, &rx_dma->ch)) {
-		printk(KERN_ERR "Could not get rx DMA channel for usrp_e\n");
-		return -ENOMEM;
-	}
-	printk(KERN_DEBUG "rx_dma->ch %d\n", rx_dma->ch);
-
-	rx_dma->phys_from = p->mem_base;
-
-	memset(&rx_dma->params, 0, sizeof(rx_dma->params));
-	rx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
-
-	rx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
-	rx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
-
-	rx_dma->params.src_start	= p->mem_base;
-	rx_dma->params.dst_start	= rx_dma->phys_to;
-
-	rx_dma->params.src_ei		= 1;
-	rx_dma->params.src_fi		= 1;
-	rx_dma->params.dst_ei		= 1;
-	rx_dma->params.dst_fi		= 1;
-
-	rx_dma->params.elem_count	= 1024;
-	rx_dma->params.frame_count	= 1;
-
-	rx_dma->params.read_prio        = DMA_CH_PRIO_HIGH;
-	rx_dma->params.write_prio       = DMA_CH_PRIO_LOW;
-
-	omap_set_dma_params(rx_dma->ch, &rx_dma->params);
-
-// Play with these with a real application
-	omap_set_dma_src_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_dest_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_src_data_pack(rx_dma->ch, 1);
-	omap_set_dma_dest_data_pack(rx_dma->ch, 1);
-
-#if 0 // Need to find implentations of the endian calls
-	omap_set_dma_src_endian_type(rx_dma->ch, OMAP_DMA_BIG_ENDIAN);
-	omap_set_dma_dst_endian_type(rx_dma->ch, OMAP_DMA_LITTLE_ENDIAN);
-#endif
-
-	tx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
-	if (!tx_dma) {
-		printk(KERN_ERR "Failed to allocate memory for tx_dma struct.");
-		return -ENOMEM;
-	}
-
-	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-tx",
-			usrp_tx_dma_irq, (void *) tx_dma, &tx_dma->ch)) {
-		printk(KERN_ERR "Could not get tx DMA channel for usrp_e\n");
-		return -ENOMEM;
-	}
-
-	printk(KERN_DEBUG "tx_dma->ch %d\n", tx_dma->ch);
-
-	tx_dma->phys_from = p->mem_base;
-
-	memset(&tx_dma->params, 0, sizeof(tx_dma->params));
-	tx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
-
-	tx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
-	tx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
-
-	tx_dma->params.src_start	= tx_dma->phys_from;
-	tx_dma->params.dst_start	= p->mem_base;
-
-	tx_dma->params.src_ei		= 1;
-	tx_dma->params.src_fi		= 1;
-	tx_dma->params.dst_ei		= 1;
-	tx_dma->params.dst_fi		= 1;
-
-	tx_dma->params.elem_count	= 1024;
-	tx_dma->params.frame_count	= 1;
-
-	tx_dma->params.read_prio        = DMA_CH_PRIO_LOW;
-	tx_dma->params.write_prio       = DMA_CH_PRIO_HIGH;
-
-	omap_set_dma_params(tx_dma->ch, &tx_dma->params);
-
-// Play with these with a real application
-	omap_set_dma_src_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_dest_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_src_data_pack(tx_dma->ch, 1);
-	omap_set_dma_dest_data_pack(tx_dma->ch, 1);
-
-	return 0;
-}
-
-static void release_dma_controller()
-{
-
-	omap_free_dma(rx_dma->ch);
-	omap_free_dma(tx_dma->ch);
-
-	kfree(rx_dma);
-	kfree(tx_dma);
-}
-
-static int get_frame_from_fpga_start()
-{
-	struct usrp_e_dev *p = usrp_e_devp;
-	struct ring_buffer_info *rbi;
-	struct ring_buffer_entry *rbe;
-	u16 elements_to_read;
-	unsigned long flags;
-
-	spin_lock_irqsave(&rx_rb_write_lock, flags);
-	rbi = &(*rx_rb.rbi)[rx_rb_write];
-	rbe = &(*rx_rb.rbe)[rx_rb_write];
-
-	/* Check for space available in the ring buffer */
-	/* If no space, drop data. A read call will restart dma transfers. */
-	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !rx_dma_active  && !shutting_down) {
-
-		rx_dma_active = 1;
-
-		rbi->flags = RB_DMA_ACTIVE;
-		
-		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
-
-		elements_to_read = 2048;
-		if (elements_to_read > 2048) {
-			printk(KERN_ERR "usrp_e: FPGA has bad transfer size of %d\n", elements_to_read);
-			goto out;
-		}
-
-// writew(1, p->ctl_addr + 54);
-		rbi->len = elements_to_read;
-		
-// writew(2, p->ctl_addr + 54);
-		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
-					(elements_to_read >> 1));
-		
-// writew(3, p->ctl_addr + 54);
-		omap_start_dma(rx_dma->ch);
-
-// writew(4, p->ctl_addr + 54);
-		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
-	} else {
-		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
-	}
-
-out:
-	return 0;
-
-}
-
-
-static int get_frame_from_fpga_finish()
-{
-	unsigned long flags;
-
-	dma_sync_single_for_cpu(NULL, (*rx_rb.rbe)[rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
-
-	spin_lock_irqsave(&rx_rb_write_lock, flags);
-	(*rx_rb.rbi)[rx_rb_write].flags = RB_USER;
-	rx_rb_write++;
-	if (rx_rb_write == rb_size.num_rx_frames)
-		rx_rb_write = 0;
-
-	rx_dma_active = 0;
-
-	spin_unlock_irqrestore(&rx_rb_write_lock, flags);
-
-	wake_up_interruptible(&data_received_queue);
-
-	get_frame_from_fpga_start();
-
-	return 0;
-}
-
-static int send_frame_to_fpga_start()
-{
-	struct usrp_e_dev *p = usrp_e_devp;
-	struct ring_buffer_info *rbi;
-	struct ring_buffer_entry *rbe;
-	u16 elements_to_write;
-	unsigned long flags;
-
-//	printk("In send_frame_to_fpga_start.\n");
-
-	/* Check if there is data to write to the FPGA, if so send it */
-	/* Otherwise, do nothing. Process is restarted by calls to write */
-
-	spin_lock_irqsave(&tx_rb_read_lock, flags);
-	rbi = &(*tx_rb.rbi)[tx_rb_read];
-	rbe = &(*tx_rb.rbe)[tx_rb_read];
-
-	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !shutting_down) {
-//		printk("In send_frame_to_fpga_start, past if.\n");
-		tx_dma_active = 1;
-
-		rbi->flags = RB_DMA_ACTIVE;
-		
-		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
-
-		elements_to_write = ((rbi->len) >> 1);
-		
-// writew(1, p->ctl_addr + 54);
-		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
-					elements_to_write);
-// writew(2, p->ctl_addr + 54);
-//		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
-		dsb();
-		
-// writew(3, p->ctl_addr + 54);
-		omap_start_dma(tx_dma->ch);
-	} else {
-		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
-	}
-
-	return 0;
-}
-
-static int send_frame_to_fpga_finish()
-{
-	unsigned long flags;
-
-//	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
-	
-	spin_lock_irqsave(&tx_rb_read_lock, flags);
-	(*tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
-
-	
-	tx_rb_read++;
-	if (tx_rb_read == rb_size.num_tx_frames)
-		tx_rb_read = 0;
-	
-	tx_dma_active = 0;
-
-	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
-
-	wake_up_interruptible(&tx_rb_space_available);
-
-	send_frame_to_fpga_start();
-
-	return 0;
-}
-
-static int alloc_ring_buffer(struct ring_buffer *rb,
-			unsigned int num_bufs, enum dma_data_direction direction)
-{
-	int i;
-
-	rb->rbi = (void *) __get_free_page(GFP_KERNEL | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
-
-	rb->rbe = kzalloc(sizeof(struct ring_buffer_entry) * num_bufs, GFP_KERNEL);
-	if (!rb) {
-		printk(KERN_ERR "Failed to allocate memory for rb entries\n");
-		return -ENOMEM;
-	}
-
-	rb->num_pages = (num_bufs & 1) ? ((num_bufs + 1) / 2) : (num_bufs / 2);
-
-	rb->pages = kzalloc(sizeof(unsigned long) * rb->num_pages, GFP_KERNEL);
-	if (!(rb->pages)) {
-		printk(KERN_ERR "Failed to allocate memory for rb page entries\n");
-		return -ENOMEM;
-	}
-
-	for (i = 0; i < rb->num_pages; i++) {
-		(*rb->pages)[i] =  __get_free_page(GFP_KERNEL | __GFP_DMA | __GFP_COMP | __GFP_ZERO | __GFP_NOWARN);
-
-		(*(rb->rbe))[i*2].frame_addr =
-			(void *) (*(rb->pages))[i];
-		(*(rb->rbe))[i*2 + 1].frame_addr =
-			(void *) ((*(rb->pages))[i] + SZ_2K);
-		if (!(*(rb->rbe))[i*2].frame_addr || !(*(rb->rbe))[i*2 + 1].frame_addr) {
-			printk(KERN_ERR "Failed to allocate memory dma buf\n");
-			return -ENOMEM;
-		}
-
-		(*(rb->rbe))[i*2].dma_addr = dma_map_single(NULL, (*(rb->rbe))[i*2].frame_addr, SZ_2K, direction);
-		(*(rb->rbe))[i*2 + 1].dma_addr = dma_map_single(NULL, (*(rb->rbe))[i*2 + 1].frame_addr, SZ_2K, direction);
-		if (!(*(rb->rbe))[i*2].dma_addr || !(*(rb->rbe))[i*2 + 1].dma_addr) {
-			printk(KERN_ERR "Failed to get physical address for dma buf\n");
-			return -ENOMEM;
-		}
-	}
-
-	return 0;
-}
-
-static void delete_ring_buffer(struct ring_buffer *rb,
-			unsigned int num_bufs, enum dma_data_direction direction)
-{
-	unsigned int i;
-	unsigned int num_pages;
-
-	printk(KERN_DEBUG "Entering delete_ring_buffer\n");
-
-	num_pages = (num_bufs & 1) ? ((num_bufs + 1) / 2) : (num_bufs / 2);
-
-	for (i = 0; i < num_pages; i++) {
-		dma_unmap_single(NULL, (*rb->rbe)[i*2].dma_addr, SZ_2K, direction);
-		dma_unmap_single(NULL, (*rb->rbe)[i*2 + 1].dma_addr, SZ_2K, direction);
-		free_page((*rb->pages)[i]);
-	}
-
-	free_page((unsigned long) rb->rbi);
-
-	kfree(rb->pages);
-	kfree(rb->rbe);
-
-	printk(KERN_DEBUG "Leaving delete_ring_buffer\n");
-}
-
-static int alloc_ring_buffers()
-{
-
-	if (alloc_ring_buffer(&tx_rb, rb_size.num_rx_frames, DMA_TO_DEVICE) < 0)
-		return -ENOMEM;
-	if (alloc_ring_buffer(&rx_rb, rb_size.num_tx_frames, DMA_FROM_DEVICE) < 0)
-		return -ENOMEM;
-
-	return 0;
-}
-
-static void init_ring_buffer(struct ring_buffer *rb, int num_bufs,
-			int initial_flags, enum dma_data_direction direction)
-{
-	int i;
-
-	for (i = 0; i < num_bufs; i++) {
-		dma_sync_single_for_device(NULL, (*rb->rbe)[i].dma_addr,
-					SZ_2K, direction);
-		dma_sync_single_for_cpu(NULL, (*rb->rbe)[i].dma_addr,
-					SZ_2K, direction);
-		(*rb->rbi)[i].flags = initial_flags;
-	}
-
-}
-
