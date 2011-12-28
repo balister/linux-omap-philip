@@ -134,7 +134,7 @@ static int get_frame_from_fpga_start(void)
 		rx_dma_active = 1;
 
 		rbi->flags = RB_DMA_ACTIVE;
-		
+
 		spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 
 		elements_to_read = 2048;
@@ -145,11 +145,11 @@ static int get_frame_from_fpga_start(void)
 
 // writew(1, p->ctl_addr + 54);
 		rbi->len = elements_to_read;
-		
+
 // writew(2, p->ctl_addr + 54);
 		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
 					(elements_to_read >> 1));
-		
+
 // writew(3, p->ctl_addr + 54);
 		omap_start_dma(rx_dma->ch);
 
@@ -230,18 +230,18 @@ static int send_frame_to_fpga_start(void)
 		tx_dma_active = 1;
 
 		rbi->flags = RB_DMA_ACTIVE;
-		
+
 		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 
 		elements_to_write = ((rbi->len) >> 1);
-		
+
 // writew(1, p->ctl_addr + 54);
 		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
 					elements_to_write);
 // writew(2, p->ctl_addr + 54);
 //		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
 		dsb();
-		
+
 // writew(3, p->ctl_addr + 54);
 		omap_start_dma(tx_dma->ch);
 	} else {
@@ -256,15 +256,15 @@ static int send_frame_to_fpga_finish(void)
 	unsigned long flags;
 
 //	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
-	
+
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
 	(*tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
 
-	
+
 	tx_rb_read++;
 	if (tx_rb_read == rb_size.num_tx_frames)
 		tx_rb_read = 0;
-	
+
 	tx_dma_active = 0;
 
 	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
@@ -919,9 +919,9 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 	err = vm_insert_page(vma, start, page);
 	if (err)
 		return -EINVAL;
-	
+
 	start += PAGE_SIZE;
-	
+
 	for (i = 0; i < rx_rb.num_pages; ++i) {
 		struct page *page = virt_to_page((*rx_rb.pages)[i]);
 		err = vm_insert_page(vma, start, page);
@@ -935,9 +935,9 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 	err = vm_insert_page(vma, start, page);
 	if (err)
 		return -EINVAL;
-	
+
 	start += PAGE_SIZE;
-	
+
 	for (i = 0; i < tx_rb.num_pages; ++i) {
 		struct page *page = virt_to_page((*tx_rb.pages)[i]);
 
@@ -959,7 +959,7 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 static const struct file_operations usrp_e_fops = {
 	.owner		=	THIS_MODULE,
 	.open		=	usrp_e_open,
-	.release 	=	usrp_e_release,
+	.release	=	usrp_e_release,
 	.read		=	usrp_e_read,
 	.write		=	usrp_e_write,
 	.llseek		=	usrp_e_llseek,
