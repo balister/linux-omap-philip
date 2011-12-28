@@ -134,8 +134,7 @@ static int send_frame_to_fpga_finish(void);
 static int rx_dma_active;
 static int tx_dma_active;
 
-static int  __init
-usrp_e_init(void)
+static int __init usrp_e_init(void)
 {
 	int ret;
 	struct usrp_e_dev *p;
@@ -244,8 +243,7 @@ usrp_e_init(void)
 	return 0;
 }
 
-static void __exit
-usrp_e_cleanup(void)
+static void __exit usrp_e_cleanup(void)
 {
 	struct usrp_e_dev *p = usrp_e_devp;
 
@@ -278,8 +276,7 @@ usrp_e_cleanup(void)
 	printk(KERN_DEBUG "Leaving cleanup\n");
 }
 
-static int
-usrp_e_open(struct inode *inode, struct file *file)
+static int usrp_e_open(struct inode *inode, struct file *file)
 {
 	int ret;
 
@@ -319,8 +316,7 @@ usrp_e_open(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static int
-usrp_e_release(struct inode *inode, struct file *file)
+static int usrp_e_release(struct inode *inode, struct file *file)
 {
 	struct usrp_e_dev *usrp_e_devp = file->private_data;
 
@@ -353,15 +349,13 @@ usrp_e_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static ssize_t
-usrp_e_read(struct file *file, char *buf, size_t count, loff_t *ppos)
+static ssize_t usrp_e_read(struct file *file, char *buf, size_t count, loff_t *ppos)
 {
 
 	return count;
 }
 
-static ssize_t
-usrp_e_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
+static ssize_t usrp_e_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 {
 
 	send_frame_to_fpga_start();
@@ -369,8 +363,7 @@ usrp_e_write(struct file *file, const char *buf, size_t count, loff_t *ppos)
 	return count;
 }
 
-static loff_t
-usrp_e_llseek(struct file *file, loff_t offest, int orig)
+static loff_t usrp_e_llseek(struct file *file, loff_t offest, int orig)
 {
 	printk(KERN_DEBUG "usrp_e llseek called\n");
 
@@ -447,8 +440,7 @@ static int usrp_e_get_rb_info(unsigned long arg)
 }
 
 
-static long usrp_e_ioctl(struct file *file,
-			unsigned int cmd, unsigned long arg)
+static long usrp_e_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 
 	switch (cmd) {
