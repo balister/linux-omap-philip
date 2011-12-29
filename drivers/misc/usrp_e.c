@@ -108,8 +108,6 @@ static struct class *usrp_e_class;
 static const struct file_operations usrp_e_fops;
 
 static DECLARE_WAIT_QUEUE_HEAD(data_received_queue);
-static DECLARE_WAIT_QUEUE_HEAD(space_available_queue);
-static DECLARE_WAIT_QUEUE_HEAD(received_data_from_user);
 static DECLARE_WAIT_QUEUE_HEAD(tx_rb_space_available);
 
 
