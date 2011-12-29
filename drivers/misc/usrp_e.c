@@ -60,6 +60,8 @@ struct usrp_e_dev {
 	atomic_t n_overruns;
 	atomic_t n_underruns;
 
+	struct dma_data *rx_dma;
+	struct dma_data *tx_dma;
 } *usrp_e_devp;
 
 struct dma_data {
@@ -70,8 +72,6 @@ struct dma_data {
 	dma_addr_t phys_to;
 };
 
-static struct dma_data *rx_dma;
-static struct dma_data *tx_dma;
 
 struct ring_buffer_entry {
 	dma_addr_t dma_addr;
@@ -149,11 +149,11 @@ static int get_frame_from_fpga_start(void)
 		rbi->len = elements_to_read;
 
 // writew(2, p->ctl_addr + 54);
-		omap_set_dma_dest_addr_size(rx_dma->ch, rbe->dma_addr,
+		omap_set_dma_dest_addr_size(p->rx_dma->ch, rbe->dma_addr,
 					(elements_to_read >> 1));
 
 // writew(3, p->ctl_addr + 54);
-		omap_start_dma(rx_dma->ch);
+		omap_start_dma(p->rx_dma->ch);
 
 // writew(4, p->ctl_addr + 54);
 		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_FROM_DEVICE);
@@ -238,14 +238,14 @@ static int send_frame_to_fpga_start(void)
 		elements_to_write = ((rbi->len) >> 1);
 
 // writew(1, p->ctl_addr + 54);
-		omap_set_dma_src_addr_size(tx_dma->ch, rbe->dma_addr,
+		omap_set_dma_src_addr_size(p->tx_dma->ch, rbe->dma_addr,
 					elements_to_write);
 // writew(2, p->ctl_addr + 54);
 //		dma_sync_single_for_device(NULL, rbe->dma_addr, SZ_2K, DMA_TO_DEVICE);
 		dsb();
 
 // writew(3, p->ctl_addr + 54);
-		omap_start_dma(tx_dma->ch);
+		omap_start_dma(p->tx_dma->ch);
 	} else {
 		spin_unlock_irqrestore(&tx_rb_read_lock, flags);
 	}
@@ -302,109 +302,110 @@ static int init_dma_controller(void)
 {
 	struct usrp_e_dev *p = usrp_e_devp;
 
-	rx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
-	if (!rx_dma) {
+	p->rx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
+	if (!p->rx_dma) {
 		printk(KERN_ERR "Failed to allocate memory for rx_dma struct.");
 		return -ENOMEM;
 	}
 
 	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-rx",
-			usrp_rx_dma_irq, (void *) rx_dma, &rx_dma->ch)) {
+			usrp_rx_dma_irq, (void *) p->rx_dma, &p->rx_dma->ch)) {
 		printk(KERN_ERR "Could not get rx DMA channel for usrp_e\n");
 		return -ENOMEM;
 	}
-	printk(KERN_DEBUG "rx_dma->ch %d\n", rx_dma->ch);
+	printk(KERN_DEBUG "rx_dma->ch %d\n", p->rx_dma->ch);
 
-	rx_dma->phys_from = p->mem_base;
+	p->rx_dma->phys_from = p->mem_base;
 
-	memset(&rx_dma->params, 0, sizeof(rx_dma->params));
-	rx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
+	memset(&p->rx_dma->params, 0, sizeof(p->rx_dma->params));
+	p->rx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
 
-	rx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
-	rx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
+	p->rx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
+	p->rx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
 
-	rx_dma->params.src_start	= p->mem_base;
-	rx_dma->params.dst_start	= rx_dma->phys_to;
+	p->rx_dma->params.src_start	= p->mem_base;
+	p->rx_dma->params.dst_start	= p->rx_dma->phys_to;
 
-	rx_dma->params.src_ei		= 1;
-	rx_dma->params.src_fi		= 1;
-	rx_dma->params.dst_ei		= 1;
-	rx_dma->params.dst_fi		= 1;
+	p->rx_dma->params.src_ei		= 1;
+	p->rx_dma->params.src_fi		= 1;
+	p->rx_dma->params.dst_ei		= 1;
+	p->rx_dma->params.dst_fi		= 1;
 
-	rx_dma->params.elem_count	= 1024;
-	rx_dma->params.frame_count	= 1;
+	p->rx_dma->params.elem_count	= 1024;
+	p->rx_dma->params.frame_count	= 1;
 
-	rx_dma->params.read_prio        = DMA_CH_PRIO_HIGH;
-	rx_dma->params.write_prio       = DMA_CH_PRIO_LOW;
+	p->rx_dma->params.read_prio        = DMA_CH_PRIO_HIGH;
+	p->rx_dma->params.write_prio       = DMA_CH_PRIO_LOW;
 
-	omap_set_dma_params(rx_dma->ch, &rx_dma->params);
+	omap_set_dma_params(p->rx_dma->ch, &p->rx_dma->params);
 
 // Play with these with a real application
-	omap_set_dma_src_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_dest_burst_mode(rx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_src_data_pack(rx_dma->ch, 1);
-	omap_set_dma_dest_data_pack(rx_dma->ch, 1);
+	omap_set_dma_src_burst_mode(p->rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(p->rx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(p->rx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(p->rx_dma->ch, 1);
 
 #if 0 // Need to find implentations of the endian calls
 	omap_set_dma_src_endian_type(rx_dma->ch, OMAP_DMA_BIG_ENDIAN);
 	omap_set_dma_dst_endian_type(rx_dma->ch, OMAP_DMA_LITTLE_ENDIAN);
 #endif
 
-	tx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
-	if (!tx_dma) {
+	p->tx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
+	if (!p->tx_dma) {
 		printk(KERN_ERR "Failed to allocate memory for tx_dma struct.");
 		return -ENOMEM;
 	}
 
 	if (omap_request_dma(OMAP_DMA_NO_DEVICE, "usrp-e-tx",
-			usrp_tx_dma_irq, (void *) tx_dma, &tx_dma->ch)) {
+			usrp_tx_dma_irq, (void *) p->tx_dma, &p->tx_dma->ch)) {
 		printk(KERN_ERR "Could not get tx DMA channel for usrp_e\n");
 		return -ENOMEM;
 	}
 
-	printk(KERN_DEBUG "tx_dma->ch %d\n", tx_dma->ch);
+	printk(KERN_DEBUG "tx_dma->ch %d\n", p->tx_dma->ch);
 
-	tx_dma->phys_from = p->mem_base;
+	p->tx_dma->phys_from = p->mem_base;
 
-	memset(&tx_dma->params, 0, sizeof(tx_dma->params));
-	tx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
+	memset(&p->tx_dma->params, 0, sizeof(p->tx_dma->params));
+	p->tx_dma->params.data_type	= OMAP_DMA_DATA_TYPE_S16;
 
-	tx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
-	tx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
+	p->tx_dma->params.src_amode	= OMAP_DMA_AMODE_POST_INC;
+	p->tx_dma->params.dst_amode	= OMAP_DMA_AMODE_POST_INC;
 
-	tx_dma->params.src_start	= tx_dma->phys_from;
-	tx_dma->params.dst_start	= p->mem_base;
+	p->tx_dma->params.src_start	= p->tx_dma->phys_from;
+	p->tx_dma->params.dst_start	= p->mem_base;
 
-	tx_dma->params.src_ei		= 1;
-	tx_dma->params.src_fi		= 1;
-	tx_dma->params.dst_ei		= 1;
-	tx_dma->params.dst_fi		= 1;
+	p->tx_dma->params.src_ei		= 1;
+	p->tx_dma->params.src_fi		= 1;
+	p->tx_dma->params.dst_ei		= 1;
+	p->tx_dma->params.dst_fi		= 1;
 
-	tx_dma->params.elem_count	= 1024;
-	tx_dma->params.frame_count	= 1;
+	p->tx_dma->params.elem_count	= 1024;
+	p->tx_dma->params.frame_count	= 1;
 
-	tx_dma->params.read_prio        = DMA_CH_PRIO_LOW;
-	tx_dma->params.write_prio       = DMA_CH_PRIO_HIGH;
+	p->tx_dma->params.read_prio        = DMA_CH_PRIO_LOW;
+	p->tx_dma->params.write_prio       = DMA_CH_PRIO_HIGH;
 
-	omap_set_dma_params(tx_dma->ch, &tx_dma->params);
+	omap_set_dma_params(p->tx_dma->ch, &p->tx_dma->params);
 
 // Play with these with a real application
-	omap_set_dma_src_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_dest_burst_mode(tx_dma->ch, OMAP_DMA_DATA_BURST_16);
-	omap_set_dma_src_data_pack(tx_dma->ch, 1);
-	omap_set_dma_dest_data_pack(tx_dma->ch, 1);
+	omap_set_dma_src_burst_mode(p->tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_dest_burst_mode(p->tx_dma->ch, OMAP_DMA_DATA_BURST_16);
+	omap_set_dma_src_data_pack(p->tx_dma->ch, 1);
+	omap_set_dma_dest_data_pack(p->tx_dma->ch, 1);
 
 	return 0;
 }
 
 static void release_dma_controller(void)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 
-	omap_free_dma(rx_dma->ch);
-	omap_free_dma(tx_dma->ch);
+	omap_free_dma(p->rx_dma->ch);
+	omap_free_dma(p->tx_dma->ch);
 
-	kfree(rx_dma);
-	kfree(tx_dma);
+	kfree(p->rx_dma);
+	kfree(p->tx_dma);
 }
 
 
