@@ -43,6 +43,26 @@
 #define TX_SPACE_AVAILABLE_GPIO	144
 #define RX_DATA_READY_GPIO	146
 
+struct dma_data {
+	int ch;
+	struct omap_dma_channel_params params;
+
+	dma_addr_t phys_from;
+	dma_addr_t phys_to;
+};
+
+struct ring_buffer_entry {
+	dma_addr_t dma_addr;
+	__u8 *frame_addr;
+};
+
+struct ring_buffer {
+	struct ring_buffer_info (*rbi)[];
+	struct ring_buffer_entry (*rbe)[];
+	int num_pages;
+	unsigned long (*pages)[];
+};
+
 static atomic_t use_count = ATOMIC_INIT(0);
 
 struct usrp_e_dev {
@@ -62,33 +82,11 @@ struct usrp_e_dev {
 
 	struct dma_data *rx_dma;
 	struct dma_data *tx_dma;
+
+	struct ring_buffer tx_rb;
+	struct ring_buffer rx_rb;
+	struct usrp_e_ring_buffer_size_t rb_size;
 } *usrp_e_devp;
-
-struct dma_data {
-	int ch;
-	struct omap_dma_channel_params params;
-
-	dma_addr_t phys_from;
-	dma_addr_t phys_to;
-};
-
-
-struct ring_buffer_entry {
-	dma_addr_t dma_addr;
-	__u8 *frame_addr;
-};
-
-struct ring_buffer {
-	struct ring_buffer_info (*rbi)[];
-	struct ring_buffer_entry (*rbe)[];
-	int num_pages;
-	unsigned long (*pages)[];
-};
-
-static struct ring_buffer tx_rb;
-static struct ring_buffer rx_rb;
-
-static struct usrp_e_ring_buffer_size_t rb_size;
 
 #define NUM_PAGES_RX_FLAGS 1
 #define NUM_RX_FRAMES 512
@@ -126,8 +124,8 @@ static int get_frame_from_fpga_start(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&rx_rb_write_lock, flags);
-	rbi = &(*rx_rb.rbi)[rx_rb_write];
-	rbe = &(*rx_rb.rbe)[rx_rb_write];
+	rbi = &(*p->rx_rb.rbi)[rx_rb_write];
+	rbe = &(*p->rx_rb.rbe)[rx_rb_write];
 
 	/* Check for space available in the ring buffer */
 	/* If no space, drop data. A read call will restart dma transfers. */
@@ -169,14 +167,15 @@ out:
 
 static int get_frame_from_fpga_finish(void)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	unsigned long flags;
 
-	dma_sync_single_for_cpu(NULL, (*rx_rb.rbe)[rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
+	dma_sync_single_for_cpu(NULL, (*p->rx_rb.rbe)[rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
 
 	spin_lock_irqsave(&rx_rb_write_lock, flags);
-	(*rx_rb.rbi)[rx_rb_write].flags = RB_USER;
+	(*p->rx_rb.rbi)[rx_rb_write].flags = RB_USER;
 	rx_rb_write++;
-	if (rx_rb_write == rb_size.num_rx_frames)
+	if (rx_rb_write == p->rb_size.num_rx_frames)
 		rx_rb_write = 0;
 
 	rx_dma_active = 0;
@@ -224,8 +223,8 @@ static int send_frame_to_fpga_start(void)
 	/* Otherwise, do nothing. Process is restarted by calls to write */
 
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
-	rbi = &(*tx_rb.rbi)[tx_rb_read];
-	rbe = &(*tx_rb.rbe)[tx_rb_read];
+	rbi = &(*p->tx_rb.rbi)[tx_rb_read];
+	rbe = &(*p->tx_rb.rbe)[tx_rb_read];
 
 	if ((rbi->flags & RB_USER) && !tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !p->shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
@@ -255,16 +254,17 @@ static int send_frame_to_fpga_start(void)
 
 static int send_frame_to_fpga_finish(void)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	unsigned long flags;
 
 //	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
 
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
-	(*tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
+	(*p->tx_rb.rbi)[tx_rb_read].flags = RB_KERNEL;
 
 
 	tx_rb_read++;
-	if (tx_rb_read == rb_size.num_tx_frames)
+	if (tx_rb_read == p->rb_size.num_tx_frames)
 		tx_rb_read = 0;
 
 	tx_dma_active = 0;
@@ -479,10 +479,11 @@ static void delete_ring_buffer(struct ring_buffer *rb,
 
 static int alloc_ring_buffers(void)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 
-	if (alloc_ring_buffer(&tx_rb, rb_size.num_rx_frames, DMA_TO_DEVICE) < 0)
+	if (alloc_ring_buffer(&p->tx_rb, p->rb_size.num_rx_frames, DMA_TO_DEVICE) < 0)
 		return -ENOMEM;
-	if (alloc_ring_buffer(&rx_rb, rb_size.num_tx_frames, DMA_FROM_DEVICE) < 0)
+	if (alloc_ring_buffer(&p->rx_rb, p->rb_size.num_tx_frames, DMA_FROM_DEVICE) < 0)
 		return -ENOMEM;
 
 	return 0;
@@ -594,10 +595,10 @@ static int __init usrp_e_init(void)
 		return -1;
 	}
 
-	rb_size.num_pages_rx_flags = NUM_PAGES_RX_FLAGS;
-	rb_size.num_rx_frames = NUM_RX_FRAMES;
-	rb_size.num_pages_tx_flags = NUM_PAGES_TX_FLAGS;
-	rb_size.num_tx_frames = NUM_TX_FRAMES;
+	p->rb_size.num_pages_rx_flags = NUM_PAGES_RX_FLAGS;
+	p->rb_size.num_rx_frames = NUM_RX_FRAMES;
+	p->rb_size.num_pages_tx_flags = NUM_PAGES_TX_FLAGS;
+	p->rb_size.num_tx_frames = NUM_TX_FRAMES;
 
 	ret = alloc_ring_buffers();
 	if (ret < 0)
@@ -638,8 +639,8 @@ static void __exit usrp_e_cleanup(void)
 	gpio_free(TX_SPACE_AVAILABLE_GPIO);
 	gpio_free(RX_DATA_READY_GPIO);
 
-	delete_ring_buffer(&tx_rb, rb_size.num_tx_frames, DMA_TO_DEVICE);
-	delete_ring_buffer(&rx_rb, rb_size.num_rx_frames, DMA_FROM_DEVICE);
+	delete_ring_buffer(&p->tx_rb, p->rb_size.num_tx_frames, DMA_TO_DEVICE);
+	delete_ring_buffer(&p->rx_rb, p->rb_size.num_rx_frames, DMA_FROM_DEVICE);
 
 	kfree(p);
 
@@ -670,8 +671,8 @@ static int usrp_e_open(struct inode *inode, struct file *file)
 	rx_dma_active = 0;
 	p->shutting_down = 0;
 
-	init_ring_buffer(&rx_rb, rb_size.num_rx_frames, RB_KERNEL, DMA_FROM_DEVICE);
-	init_ring_buffer(&tx_rb, rb_size.num_tx_frames, RB_KERNEL, DMA_TO_DEVICE);
+	init_ring_buffer(&p->rx_rb, p->rb_size.num_rx_frames, RB_KERNEL, DMA_FROM_DEVICE);
+	init_ring_buffer(&p->tx_rb, p->rb_size.num_tx_frames, RB_KERNEL, DMA_TO_DEVICE);
 
 	/* Configure interrupts for GPIO pins */
 
@@ -803,8 +804,9 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 static int usrp_e_get_rb_info(unsigned long arg)
 {
 	struct usrp_e_ring_buffer_size_t __user *argp = (struct usrp_e_ring_buffer_size_t __user *) arg;
+	struct usrp_e_dev *p = usrp_e_devp;
 
-	if (copy_to_user(argp, &rb_size, sizeof(rb_size)))
+	if (copy_to_user(argp, &p->rb_size, sizeof(p->rb_size)))
 		return -EFAULT;
 
 	return 0;
@@ -842,6 +844,7 @@ static long usrp_e_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	unsigned int mask = 0;
 	unsigned long flags;
 
@@ -856,20 +859,20 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 
 	spin_lock_irqsave(&rx_rb_write_lock, flags);
 	if (rx_rb_write == 0) {
-		if ((*rx_rb.rbi)[rb_size.num_rx_frames - 1].flags & RB_USER)
+		if ((*p->rx_rb.rbi)[p->rb_size.num_rx_frames - 1].flags & RB_USER)
 			mask |= POLLIN | POLLRDNORM;
 	} else {
-		if ((*rx_rb.rbi)[rx_rb_write - 1].flags & RB_USER)
+		if ((*p->rx_rb.rbi)[rx_rb_write - 1].flags & RB_USER)
 			mask |= POLLIN | POLLRDNORM;
 	}
 	spin_unlock_irqrestore(&rx_rb_write_lock, flags);
 
 	spin_lock_irqsave(&tx_rb_read_lock, flags);
 	if (tx_rb_read == 0) {
-		if ((*tx_rb.rbi)[rb_size.num_tx_frames - 1].flags & RB_KERNEL)
+			if ((*p->tx_rb.rbi)[p->rb_size.num_tx_frames - 1].flags & RB_KERNEL)
 			mask |= POLLOUT | POLLWRNORM;
 	} else {
-		if ((*tx_rb.rbi)[tx_rb_read - 1].flags & RB_KERNEL)
+		if ((*p->tx_rb.rbi)[tx_rb_read - 1].flags & RB_KERNEL)
 			mask |= POLLOUT | POLLWRNORM;
 	}
 	spin_unlock_irqrestore(&tx_rb_read_lock, flags);
@@ -901,6 +904,7 @@ static const struct vm_operations_struct usrp_e_mmap_ops = {
 
 static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 {
+	struct usrp_e_dev *p = usrp_e_devp;
 	unsigned long size, expected_size;
 	unsigned int i;
 	unsigned long start;
@@ -911,8 +915,8 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 		return -EINVAL;
 
 	/* Verify the user will map the entire tx and rx ring buffer space */
-	expected_size = (rb_size.num_rx_frames + rb_size.num_tx_frames) * (PAGE_SIZE >> 1)
-		+ (rb_size.num_pages_rx_flags + rb_size.num_pages_tx_flags) * PAGE_SIZE;
+	expected_size = (p->rb_size.num_rx_frames + p->rb_size.num_tx_frames) * (PAGE_SIZE >> 1)
+		+ (p->rb_size.num_pages_rx_flags + p->rb_size.num_pages_tx_flags) * PAGE_SIZE;
 
 	size = vma->vm_end - vma->vm_start;
 	printk(KERN_DEBUG "Size = %ld, expected sixe = %ld\n", size, expected_size);
@@ -922,15 +926,15 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	start = vma->vm_start;
 
-	page = virt_to_page(rx_rb.rbi);
+	page = virt_to_page(p->rx_rb.rbi);
 	err = vm_insert_page(vma, start, page);
 	if (err)
 		return -EINVAL;
 
 	start += PAGE_SIZE;
 
-	for (i = 0; i < rx_rb.num_pages; ++i) {
-		struct page *page = virt_to_page((*rx_rb.pages)[i]);
+	for (i = 0; i < p->rx_rb.num_pages; ++i) {
+		struct page *page = virt_to_page((*p->rx_rb.pages)[i]);
 		err = vm_insert_page(vma, start, page);
 		if (err)
 			return -EINVAL;
@@ -938,15 +942,15 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 		start += PAGE_SIZE;
 	}
 
-	page = virt_to_page(tx_rb.rbi);
+	page = virt_to_page(p->tx_rb.rbi);
 	err = vm_insert_page(vma, start, page);
 	if (err)
 		return -EINVAL;
 
 	start += PAGE_SIZE;
 
-	for (i = 0; i < tx_rb.num_pages; ++i) {
-		struct page *page = virt_to_page((*tx_rb.pages)[i]);
+	for (i = 0; i < p->tx_rb.num_pages; ++i) {
+		struct page *page = virt_to_page((*p->tx_rb.pages)[i]);
 
 		err = vm_insert_page(vma, start, page);
 		if (err)
