@@ -1,4 +1,5 @@
 
+
 /*
  *  Copyright (C) 2010 Ettus Research, LLC
  *
@@ -26,6 +27,14 @@ struct usrp_e_ctl32 {
 	__u32 offset;
 	__u32 count;
 	__u32 buf[10];
+};
+
+struct usrp_e_pdata {
+	char *name;
+	unsigned int data_ready_gpio;
+	unsigned int space_available_gpio;
+	unsigned int control_CS;
+	unsigned int data_CS;
 };
 
 #define USRP_E_IOC_MAGIC	'u'

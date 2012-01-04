@@ -40,8 +40,8 @@
 
 #include <linux/usrp_e.h>
 
-#define TX_SPACE_AVAILABLE_GPIO	144
-#define RX_DATA_READY_GPIO	146
+#define X_TX_SPACE_AVAILABLE_GPIO	144
+#define X_RX_DATA_READY_GPIO	146
 
 struct dma_data {
 	int ch;
@@ -65,7 +65,7 @@ struct ring_buffer {
 
 static atomic_t use_count = ATOMIC_INIT(0);
 
-struct usrp_e_dev {
+struct usrp_e_drvdata {
 	struct cdev cdev;
 
 	atomic_t mapped;
@@ -90,7 +90,14 @@ struct usrp_e_dev {
 	struct usrp_e_ring_buffer_size_t rb_size;
 	int tx_rb_read;
 	int rx_rb_write;
-} *usrp_e_devp;
+};
+
+struct usrp_e_devdata {
+	struct usrp_e_pdata *pdata;
+	struct usrp_e_drvdata *drvdata;
+} dev_data;
+
+static struct platform_driver usrp_e_driver;
 
 #define NUM_PAGES_RX_FLAGS 1
 #define NUM_RX_FRAMES 512
@@ -104,6 +111,7 @@ static dev_t usrp_e_dev_number;
 static struct class *usrp_e_class;
 
 #define DEVICE_NAME	"usrp_e"
+#define DRVNAME	"usrp_e"
 
 static const struct file_operations usrp_e_fops;
 
@@ -113,7 +121,7 @@ static DECLARE_WAIT_QUEUE_HEAD(tx_rb_space_available);
 
 static int get_frame_from_fpga_start(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	struct ring_buffer_info *rbi;
 	struct ring_buffer_entry *rbe;
 	u16 elements_to_read;
@@ -125,7 +133,7 @@ static int get_frame_from_fpga_start(void)
 
 	/* Check for space available in the ring buffer */
 	/* If no space, drop data. A read call will restart dma transfers. */
-	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(RX_DATA_READY_GPIO)) && !p->rx_dma_active  && !p->shutting_down) {
+	if ((rbi->flags & RB_KERNEL) && (gpio_get_value(dev_data.pdata->data_ready_gpio)) && !p->rx_dma_active  && !p->shutting_down) {
 
 		p->rx_dma_active = 1;
 
@@ -163,7 +171,7 @@ out:
 
 static int get_frame_from_fpga_finish(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	unsigned long flags;
 
 	dma_sync_single_for_cpu(NULL, (*p->rx_rb.rbe)[p->rx_rb_write].dma_addr, SZ_2K, DMA_FROM_DEVICE);
@@ -198,7 +206,7 @@ static irqreturn_t data_ready_irqhandler(int irq, void *dev_id)
 
 static void usrp_rx_dma_irq(int ch, u16 stat, void *data)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	p->rx_dma_active = 0;
 
@@ -208,7 +216,7 @@ static void usrp_rx_dma_irq(int ch, u16 stat, void *data)
 
 static int send_frame_to_fpga_start(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	struct ring_buffer_info *rbi;
 	struct ring_buffer_entry *rbe;
 	u16 elements_to_write;
@@ -223,7 +231,7 @@ static int send_frame_to_fpga_start(void)
 	rbi = &(*p->tx_rb.rbi)[p->tx_rb_read];
 	rbe = &(*p->tx_rb.rbe)[p->tx_rb_read];
 
-	if ((rbi->flags & RB_USER) && !p->tx_dma_active && (gpio_get_value(TX_SPACE_AVAILABLE_GPIO)) && !p->shutting_down) {
+	if ((rbi->flags & RB_USER) && !p->tx_dma_active && (gpio_get_value(dev_data.pdata->space_available_gpio)) && !p->shutting_down) {
 //		printk("In send_frame_to_fpga_start, past if.\n");
 		p->tx_dma_active = 1;
 
@@ -251,7 +259,7 @@ static int send_frame_to_fpga_start(void)
 
 static int send_frame_to_fpga_finish(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	unsigned long flags;
 
 //	dma_sync_single_for_cpu(NULL, (*tx_rb.rbe)[tx_rb_read].dma_addr, SZ_2K, DMA_TO_DEVICE);
@@ -288,7 +296,7 @@ static irqreturn_t space_available_irqhandler(int irq, void *dev_id)
 
 static void usrp_tx_dma_irq(int ch, u16 stat, void *data)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	p->tx_dma_active = 0;
 
@@ -298,7 +306,7 @@ static void usrp_tx_dma_irq(int ch, u16 stat, void *data)
 
 static int init_dma_controller(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	p->rx_dma = kzalloc(sizeof(struct dma_data), GFP_KERNEL);
 	if (!p->rx_dma) {
@@ -397,7 +405,7 @@ static int init_dma_controller(void)
 
 static void release_dma_controller(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	omap_free_dma(p->rx_dma->ch);
 	omap_free_dma(p->tx_dma->ch);
@@ -477,7 +485,7 @@ static void delete_ring_buffer(struct ring_buffer *rb,
 
 static int alloc_ring_buffers(void)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	if (alloc_ring_buffer(&p->tx_rb, p->rb_size.num_rx_frames, DMA_TO_DEVICE) < 0)
 		return -ENOMEM;
@@ -502,152 +510,10 @@ static void init_ring_buffer(struct ring_buffer *rb, int num_bufs,
 
 }
 
-static int __init usrp_e_init(void)
-{
-	int ret;
-	struct usrp_e_dev *p;
-
-	printk(KERN_DEBUG "usrp_e entering driver initialization\n");
-
-	if (alloc_chrdev_region(&usrp_e_dev_number, 0, 1, DEVICE_NAME) < 0) {
-		printk(KERN_DEBUG "Can't register device\n");
-		return -1;
-	}
-
-	usrp_e_class = class_create(THIS_MODULE, DEVICE_NAME);
-
-	usrp_e_devp = kzalloc(sizeof(struct usrp_e_dev), GFP_KERNEL);
-	if (!usrp_e_devp) {
-		printk(KERN_ERR "Bad kmalloc\n");
-		return -ENOMEM;
-	}
-
-	p = usrp_e_devp; /* Shorten var name so I stay sane. */
-
-	printk(KERN_DEBUG "usrp_e data struct malloc'd.\n");
-
-	atomic_set(&p->mapped, 0);
-	atomic_set(&p->n_underruns, 0);
-	atomic_set(&p->n_overruns, 0);
-
-	printk(KERN_DEBUG "usrp_e Data initialized..\n");
-
-	cdev_init(&p->cdev, &usrp_e_fops);
-	p->cdev.owner = THIS_MODULE;
-
-	ret = cdev_add(&p->cdev, MKDEV(MAJOR(usrp_e_dev_number), 0), 1);
-	if (ret) {
-		printk(KERN_ERR "Bad cdev\n");
-		return ret;
-	}
-
-	printk(KERN_DEBUG "usrp_e major number : %d\n",
-		MAJOR(usrp_e_dev_number));
-	device_create(usrp_e_class, NULL, MKDEV(MAJOR(usrp_e_dev_number), 0),
-		      NULL, "usrp_e%d", 0);
-
-	printk(KERN_DEBUG "Getting Chip Select\n");
-
-	if (gpmc_cs_request(4, SZ_2K, &p->mem_base) < 0) {
-		printk(KERN_ERR "Failed request for GPMC mem for usrp_e\n");
-		return -1;
-	}
-	printk(KERN_DEBUG "Got CS4, address = %lx\n", p->mem_base);
-
-	if (!request_mem_region(p->mem_base, SZ_2K, "usrp_e")) {
-		printk(KERN_ERR "Request_mem_region failed.\n");
-		gpmc_cs_free(4);
-		return -1;
-	}
-
-	p->ioaddr = ioremap(p->mem_base, SZ_2K);
-	spin_lock_init(&p->fpga_lock);
-
-	if (gpmc_cs_request(6, SZ_2K, &p->control_mem_base) < 0) {
-		printk(KERN_ERR "Failed request for GPMC control mem for usrp_e\n");
-		return -1;
-	}
-	printk(KERN_DEBUG "Got CS6, address = %lx\n", p->control_mem_base);
-
-	if (!request_mem_region(p->control_mem_base, SZ_2K, "usrp_e_c")) {
-		printk(KERN_ERR "Request_mem_region failed.\n");
-		gpmc_cs_free(6);
-		return -1;
-	}
-
-	p->ctl_addr = ioremap_nocache(p->control_mem_base, SZ_2K);
-
-
-	/* Configure GPIO's */
-
-	if (!(((gpio_request(TX_SPACE_AVAILABLE_GPIO,
-				    "TX_SPACE_AVAILABLE_GPIO") == 0) &&
-		(gpio_direction_input(TX_SPACE_AVAILABLE_GPIO) == 0)))) {
-		printk(KERN_ERR "Could not claim GPIO for TX_SPACE_AVAILABLE_GPIO\n");
-		return -1;
-	}
-
-	if (!(((gpio_request(RX_DATA_READY_GPIO, "RX_DATA_READY_GPIO") == 0) &&
-		(gpio_direction_input(RX_DATA_READY_GPIO) == 0)))) {
-		printk(KERN_ERR "Could not claim GPIO for RX_DATA_READY_GPIO\n");
-		return -1;
-	}
-
-	p->rb_size.num_pages_rx_flags = NUM_PAGES_RX_FLAGS;
-	p->rb_size.num_rx_frames = NUM_RX_FRAMES;
-	p->rb_size.num_pages_tx_flags = NUM_PAGES_TX_FLAGS;
-	p->rb_size.num_tx_frames = NUM_TX_FRAMES;
-
-	ret = alloc_ring_buffers();
-	if (ret < 0)
-		return ret;
-
-	/* Initialize various DMA related flags */
-	p->rx_dma_active = 0;
-	p->tx_dma_active = 0;
-	p->shutting_down = 0;
-
-	printk(KERN_DEBUG "usrp_e Driver Initialized.\n");
-
-	return 0;
-}
-
-static void __exit usrp_e_cleanup(void)
-{
-	struct usrp_e_dev *p = usrp_e_devp;
-
-	unregister_chrdev_region(usrp_e_dev_number, 1);
-
-	release_mem_region(p->mem_base, SZ_2K);
-	release_mem_region(p->control_mem_base, SZ_2K);
-
-	device_destroy(usrp_e_class, MKDEV(MAJOR(usrp_e_dev_number), 0));
-	cdev_del(&p->cdev);
-
-	class_destroy(usrp_e_class);
-
-	iounmap(p->ioaddr);
-	iounmap(p->ctl_addr);
-
-	gpmc_cs_free(4);
-	gpmc_cs_free(6);
-
-	printk(KERN_DEBUG "Freeing gpios\n");
-
-	gpio_free(TX_SPACE_AVAILABLE_GPIO);
-	gpio_free(RX_DATA_READY_GPIO);
-
-	delete_ring_buffer(&p->tx_rb, p->rb_size.num_tx_frames, DMA_TO_DEVICE);
-	delete_ring_buffer(&p->rx_rb, p->rb_size.num_rx_frames, DMA_FROM_DEVICE);
-
-	kfree(p);
-
-	printk(KERN_DEBUG "Leaving cleanup\n");
-}
 
 static int usrp_e_open(struct inode *inode, struct file *file)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	int ret;
 
 	printk(KERN_DEBUG "usrp_e open called, use_count = %d\n",
@@ -674,11 +540,11 @@ static int usrp_e_open(struct inode *inode, struct file *file)
 
 	/* Configure interrupts for GPIO pins */
 
-	ret = request_irq(gpio_to_irq(TX_SPACE_AVAILABLE_GPIO),
+	ret = request_irq(gpio_to_irq(dev_data.pdata->space_available_gpio),
 			space_available_irqhandler,
 		IRQF_TRIGGER_RISING, "usrp_e_space_available", NULL);
 
-	ret = request_irq(gpio_to_irq(RX_DATA_READY_GPIO),
+	ret = request_irq(gpio_to_irq(dev_data.pdata->data_ready_gpio),
 			data_ready_irqhandler,
 			IRQF_TRIGGER_RISING, "usrp_e_data_ready", NULL);
 
@@ -688,7 +554,7 @@ static int usrp_e_open(struct inode *inode, struct file *file)
 
 static int usrp_e_release(struct inode *inode, struct file *file)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	printk(KERN_DEBUG "usrp_e release called\n");
 
@@ -705,14 +571,12 @@ static int usrp_e_release(struct inode *inode, struct file *file)
 	/* Freeing gpio irq's */
 	printk(KERN_DEBUG "Freeing gpio irq's\n");
 
-	free_irq(gpio_to_irq(TX_SPACE_AVAILABLE_GPIO), NULL);
-	free_irq(gpio_to_irq(RX_DATA_READY_GPIO), NULL);
+	free_irq(gpio_to_irq(dev_data.pdata->space_available_gpio), NULL);
+	free_irq(gpio_to_irq(dev_data.pdata->data_ready_gpio), NULL);
 
 	printk(KERN_DEBUG "Freeing DMA channels\n");
 
 	release_dma_controller();
-
-	usrp_e_devp = 0;
 
 	atomic_dec(&use_count);
 
@@ -745,6 +609,7 @@ static int usrp_e_ctl16(unsigned long arg, int direction)
 	struct usrp_e_ctl16 __user *argp = (struct usrp_e_ctl16 __user *) arg;
 	int i;
 	struct usrp_e_ctl16 ctl;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	if (copy_from_user(&ctl, argp, sizeof(struct usrp_e_ctl16)))
 		return -EFAULT;
@@ -754,11 +619,11 @@ static int usrp_e_ctl16(unsigned long arg, int direction)
 
 	if (direction == 0) {
 		for (i = 0; i < ctl.count; i++)
-			writew(ctl.buf[i], &usrp_e_devp->ctl_addr \
+			writew(ctl.buf[i], &p->ctl_addr \
 				[i*2 + ctl.offset]);
 	} else if (direction == 1) {
 		for (i = 0; i < ctl.count; i++)
-			ctl.buf[i] = readw(&usrp_e_devp->ctl_addr \
+			ctl.buf[i] = readw(&p->ctl_addr \
 				[i*2 + ctl.offset]);
 
 		if (copy_to_user(argp, &ctl, sizeof(struct usrp_e_ctl16)))
@@ -774,6 +639,7 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 	struct usrp_e_ctl32 __user *argp = (struct usrp_e_ctl32 __user *) arg;
 	int i;
 	struct usrp_e_ctl32 ctl;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	if (copy_from_user(&ctl, argp, sizeof(struct usrp_e_ctl32)))
 		return -EFAULT;
@@ -783,11 +649,11 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 
 	if (direction == 0) {
 		for (i = 0; i < ctl.count; i++)
-			writel(ctl.buf[i], &usrp_e_devp->ctl_addr \
+			writel(ctl.buf[i], &p->ctl_addr \
 				[i*4 + ctl.offset]);
 	} else if (direction == 1) {
 		for (i = 0; i < ctl.count; i++)
-			ctl.buf[i] = readl(&usrp_e_devp->ctl_addr \
+			ctl.buf[i] = readl(&p->ctl_addr \
 				[i*4 + ctl.offset]);
 
 		if (copy_to_user(argp, &ctl, sizeof(struct usrp_e_ctl16)))
@@ -802,7 +668,7 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 static int usrp_e_get_rb_info(unsigned long arg)
 {
 	struct usrp_e_ring_buffer_size_t __user *argp = (struct usrp_e_ring_buffer_size_t __user *) arg;
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	if (copy_to_user(argp, &p->rb_size, sizeof(p->rb_size)))
 		return -EFAULT;
@@ -842,7 +708,7 @@ static long usrp_e_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	unsigned int mask = 0;
 	unsigned long flags;
 
@@ -883,14 +749,14 @@ static unsigned int usrp_e_poll(struct file *filp, poll_table *wait)
 
 static void usrp_e_mm_open(struct vm_area_struct *vma)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	atomic_inc(&p->mapped);
 }
 
 static void usrp_e_mm_close(struct vm_area_struct *vma)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 
 	atomic_dec(&p->mapped);
 }
@@ -902,7 +768,7 @@ static const struct vm_operations_struct usrp_e_mmap_ops = {
 
 static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 {
-	struct usrp_e_dev *p = usrp_e_devp;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
 	unsigned long size, expected_size;
 	unsigned int i;
 	unsigned long start;
@@ -965,6 +831,79 @@ static int usrp_e_mmap(struct file *filp, struct vm_area_struct *vma)
 	return 0;
 }
 
+static int __init usrp_e_init(void)
+{
+	int ret;
+	struct usrp_e_drvdata *p = dev_data.drvdata;
+
+	printk(KERN_DEBUG "usrp_e entering driver initialization\n");
+
+	ret = platform_driver_register(&usrp_e_driver);
+	if (ret) {
+		printk(KERN_ERR "Failed to register driver\n");
+		return -1;
+	}
+
+	if (alloc_chrdev_region(&usrp_e_dev_number, 0, 1, DEVICE_NAME) < 0) {
+		printk(KERN_DEBUG "Can't register device\n");
+		return -1;
+	}
+
+	usrp_e_class = class_create(THIS_MODULE, DEVICE_NAME);
+
+	atomic_set(&p->mapped, 0);
+	atomic_set(&p->n_underruns, 0);
+	atomic_set(&p->n_overruns, 0);
+
+	printk(KERN_DEBUG "usrp_e Data initialized..\n");
+
+	cdev_init(&p->cdev, &usrp_e_fops);
+	p->cdev.owner = THIS_MODULE;
+
+	ret = cdev_add(&p->cdev, MKDEV(MAJOR(usrp_e_dev_number), 0), 1);
+	if (ret) {
+		printk(KERN_ERR "Bad cdev\n");
+		return ret;
+	}
+
+	printk(KERN_DEBUG "usrp_e major number : %d\n",
+		MAJOR(usrp_e_dev_number));
+	device_create(usrp_e_class, NULL, MKDEV(MAJOR(usrp_e_dev_number), 0),
+		      NULL, "usrp_e%d", 0);
+
+
+	p->rb_size.num_pages_rx_flags = NUM_PAGES_RX_FLAGS;
+	p->rb_size.num_rx_frames = NUM_RX_FRAMES;
+	p->rb_size.num_pages_tx_flags = NUM_PAGES_TX_FLAGS;
+	p->rb_size.num_tx_frames = NUM_TX_FRAMES;
+
+	ret = alloc_ring_buffers();
+	if (ret < 0)
+		return ret;
+
+	/* Initialize various DMA related flags */
+	p->rx_dma_active = 0;
+	p->tx_dma_active = 0;
+	p->shutting_down = 0;
+
+	printk(KERN_DEBUG "usrp_e Driver Initialized.\n");
+
+	return 0;
+}
+
+static void __exit usrp_e_cleanup(void)
+{
+	struct usrp_e_drvdata *p = dev_data.drvdata;
+
+
+	delete_ring_buffer(&p->tx_rb, p->rb_size.num_tx_frames, DMA_TO_DEVICE);
+	delete_ring_buffer(&p->rx_rb, p->rb_size.num_rx_frames, DMA_FROM_DEVICE);
+
+	kfree(p);
+
+	printk(KERN_DEBUG "Leaving cleanup\n");
+}
+
 static const struct file_operations usrp_e_fops = {
 	.owner		=	THIS_MODULE,
 	.open		=	usrp_e_open,
@@ -977,11 +916,109 @@ static const struct file_operations usrp_e_fops = {
 	.mmap           =       usrp_e_mmap,
 };
 
-MODULE_VERSION("0.2");
-MODULE_ALIAS(DEVICE_NAME);
-MODULE_DESCRIPTION(DEVICE_NAME);
-MODULE_AUTHOR("Philip Balister <philip@opensdr.com>");
-MODULE_LICENSE("GPL v2");
+static int usrp_e_probe(struct platform_device *p)
+{
+	/* shorten some var names */
+	struct usrp_e_pdata *pdata = dev_data.pdata;
+	struct usrp_e_drvdata *drvdata = dev_data.drvdata;
+
+	dev_data.pdata = devm_kzalloc(&p->dev, sizeof(struct usrp_e_pdata), GFP_KERNEL);
+	dev_data.drvdata = devm_kzalloc(&p->dev, sizeof(struct usrp_e_drvdata), GFP_KERNEL);
+
+	dev_data.pdata = p->dev.platform_data;
+
+	printk(KERN_DEBUG "Getting Chip Select\n");
+	if (gpmc_cs_request(pdata->data_CS, SZ_2K, &drvdata->mem_base) < 0) {
+		printk(KERN_ERR "Failed request for GPMC mem for usrp_e\n");
+		return -1;
+	}
+	printk(KERN_DEBUG "Got CS%d, address = %lx\n", pdata->data_CS, drvdata->mem_base);
+
+	if (!request_mem_region(drvdata->mem_base, SZ_2K, "usrp_e")) {
+		printk(KERN_ERR "Request_mem_region failed.\n");
+		gpmc_cs_free(pdata->data_CS);
+		return -1;
+	}
+
+	drvdata->ioaddr = ioremap(drvdata->mem_base, SZ_2K);
+	spin_lock_init(&drvdata->fpga_lock);
+
+	if (gpmc_cs_request(pdata->control_CS, SZ_2K, &drvdata->control_mem_base) < 0) {
+		printk(KERN_ERR "Failed request for GPMC control mem for usrp_e\n");
+		return -1;
+	}
+	printk(KERN_DEBUG "Got CS%d, address = %lx\n", pdata->control_CS, drvdata->control_mem_base);
+
+	if (!request_mem_region(drvdata->control_mem_base, SZ_2K, "usrp_e_c")) {
+		printk(KERN_ERR "Request_mem_region failed.\n");
+		gpmc_cs_free(pdata->control_CS);
+		return -1;
+	}
+
+	drvdata->ctl_addr = ioremap_nocache(drvdata->control_mem_base, SZ_2K);
+
+
+	/* Configure GPIO's */
+
+	if (!(((gpio_request(pdata->space_available_gpio,
+				    "TX_SPACE_AVAILABLE_GPIO") == 0) &&
+		(gpio_direction_input(pdata->space_available_gpio) == 0)))) {
+		printk(KERN_ERR "Could not claim GPIO for TX_SPACE_AVAILABLE_GPIO\n");
+		return -1;
+	}
+
+	if (!(((gpio_request(pdata->data_ready_gpio, "RX_DATA_READY_GPIO") == 0) &&
+		(gpio_direction_input(pdata->data_ready_gpio) == 0)))) {
+		printk(KERN_ERR "Could not claim GPIO for RX_DATA_READY_GPIO\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int usrp_e_remove(struct platform_device *p)
+{
+
+	printk(KERN_DEBUG "In usrp_e_remove\n");
+#if 0
+	unregister_chrdev_region(usrp_e_dev_number, 1);
+
+	release_mem_region(p->mem_base, SZ_2K);
+	release_mem_region(p->control_mem_base, SZ_2K);
+
+	device_destroy(usrp_e_class, MKDEV(MAJOR(usrp_e_dev_number), 0));
+	cdev_del(&p->cdev);
+
+	class_destroy(usrp_e_class);
+
+	iounmap(p->ioaddr);
+	iounmap(p->ctl_addr);
+
+	gpmc_cs_free(4);
+	gpmc_cs_free(6);
+
+	printk(KERN_DEBUG "Freeing gpios\n");
+
+	gpio_free(TX_SPACE_AVAILABLE_GPIO);
+	gpio_free(RX_DATA_READY_GPIO);
+#endif
+	return 0;
+}
+
+static struct platform_driver usrp_e_driver = {
+	.probe = usrp_e_probe,
+	.remove = usrp_e_remove,
+	.driver = {
+		.name = DRVNAME,
+		.owner = THIS_MODULE,
+		}
+};
 
 module_init(usrp_e_init);
 module_exit(usrp_e_cleanup);
+
+MODULE_VERSION("0.3");
+MODULE_ALIAS(DEVICE_NAME);
+MODULE_DESCRIPTION("Ettus Research E1XX memory mapped FPGA interface");
+MODULE_AUTHOR("Philip Balister <philip@opensdr.com>");
+MODULE_LICENSE("GPL v2");
