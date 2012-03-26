@@ -388,7 +388,10 @@ static int usrp_e_ctl16(unsigned long arg, int direction)
 	if (copy_from_user(&ctl, argp, sizeof(struct usrp_e_ctl16)))
 		return -EFAULT;
 
-	if (ctl.count > 10)
+	if (ctl.count > 20)
+		return -EINVAL;
+
+	if ((ctl.offset >= SZ_2K) || ((ctl.offset + 2 * ctl.count) >= SZ_2K))
 		return -EINVAL;
 
 	if (direction == 0) {
@@ -417,7 +420,10 @@ static int usrp_e_ctl32(unsigned long arg, int direction)
 	if (copy_from_user(&ctl, argp, sizeof(struct usrp_e_ctl32)))
 		return -EFAULT;
 
-	if (ctl.count > 20)
+	if (ctl.count > 10)
+		return -EINVAL;
+
+	if ((ctl.offset >= SZ_2K) || ((ctl.offset + 4 * ctl.count) >= SZ_2K))
 		return -EINVAL;
 
 	if (direction == 0) {
