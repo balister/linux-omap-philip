@@ -747,9 +747,9 @@ static void __init usrp1_e_init(void)
 	// Signal control parameters per chip select
 	tmp = gpmc_cs_read_reg(6, GPMC_CS_CONFIG1);
 //	tmp |= (GPMC_CONFIG1_MUXADDDATA);
-//	tmp |= (GPMC_CONFIG1_WRITETYPE_SYNC);
-//	tmp |= (GPMC_CONFIG1_READTYPE_SYNC);
-	tmp |= (GPMC_CONFIG1_FCLK_DIV(0));
+	tmp |= (GPMC_CONFIG1_WRITETYPE_SYNC);
+	tmp |= (GPMC_CONFIG1_READTYPE_SYNC);
+	tmp |= (GPMC_CONFIG1_FCLK_DIV(2));
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG1, tmp);
 	printk("GPMC_CONFIG1 reg: %x\n", tmp);
 #endif
@@ -758,8 +758,8 @@ static void __init usrp1_e_init(void)
 	// CS signal timing parameter configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG2_CSONTIME(0);
-	tmp |= GPMC_CONFIG2_CSWROFFTIME(20);
-	tmp |= GPMC_CONFIG2_CSRDOFFTIME(31);
+	tmp |= GPMC_CONFIG2_CSWROFFTIME(3);
+	tmp |= GPMC_CONFIG2_CSRDOFFTIME(6);
 	printk("GPMC_CONFIG2 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG2, tmp);
 #endif 
@@ -778,9 +778,9 @@ static void __init usrp1_e_init(void)
 	// nWE and nOE signals timing parameter configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG4_WEONTIME(0);
-	tmp |= GPMC_CONFIG4_WEOFFTIME(20);
-	tmp |= GPMC_CONFIG4_OEONTIME(0);
-	tmp |= GPMC_CONFIG4_OEOFFTIME(31);
+	tmp |= GPMC_CONFIG4_WEOFFTIME(3);
+	tmp |= GPMC_CONFIG4_OEONTIME(1);
+	tmp |= GPMC_CONFIG4_OEOFFTIME(5);
 	printk("GPMC_CONFIG4 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG4, tmp);
 #endif
@@ -789,9 +789,9 @@ static void __init usrp1_e_init(void)
 	// RdAccess time and Cycle time timing paraters configuration
 	tmp = 0;
 	tmp |= GPMC_CONFIG5_PAGEBURSTACCESSTIME(1);
-	tmp |= GPMC_CONFIG5_RDACCESSTIME(30);
-	tmp |= GPMC_CONFIG5_WRCYCLETIME(21);
-	tmp |= GPMC_CONFIG5_RDCYCLETIME(31);
+	tmp |= GPMC_CONFIG5_RDACCESSTIME(3);
+	tmp |= GPMC_CONFIG5_WRCYCLETIME(3);
+	tmp |= GPMC_CONFIG5_RDCYCLETIME(6);
 	printk("GPMC_CONFIG5 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG5, tmp);
 #endif
@@ -799,10 +799,9 @@ static void __init usrp1_e_init(void)
 #if 1
 	// WrAccessTime WrDataOnADmuxBus, Cycle2Cycle, and BusTurnAround params
 	tmp = 0;
-	tmp |= GPMC_CONFIG6_WRACCESSTIME(15);
+	tmp |= GPMC_CONFIG6_WRACCESSTIME(3);
 	tmp |= GPMC_CONFIG6_WRDATAONADMUXBUS(3);
-	tmp |= GPMC_CONFIG6_CYCLE2CYCLEDELAY(15);
-	tmp |= GPMC_CONFIG6_CYCLE2CYCLESAMECSEN;
+	tmp |= GPMC_CONFIG6_CYCLE2CYCLEDELAY(0);
 	tmp |= GPMC_CONFIG6_BUSTURNAROUND(0);
 	printk("GPMC_CONFIG6 reg: %x\n", tmp);
 	gpmc_cs_write_reg(6, GPMC_CS_CONFIG6, tmp);
